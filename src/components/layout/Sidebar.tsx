@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuthStore, useNotificationStore } from '@/store';
 import { UserRole } from '@/types';
 import {
@@ -11,7 +11,6 @@ import {
   FileText,
   RotateCcw,
   History,
-  ClipboardList,
   MonitorSmartphone,
   BarChart3,
   ClipboardCheck,
@@ -23,7 +22,6 @@ import { cn } from '@/lib/utils';
 const Sidebar = () => {
   const { user, clearAuth } = useAuthStore();
   const { counts } = useNotificationStore();
-  const location = useLocation();
 
   const handleLogout = () => {
     clearAuth();
@@ -114,7 +112,7 @@ const Sidebar = () => {
               >
                 <item.icon className="w-5 h-5" />
                 <span className="flex-1">{item.label}</span>
-                {item.badge > 0 && (
+                {!!item.badge && item.badge > 0 && (
                   <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
                     {item.badge}
                   </span>
