@@ -1,175 +1,139 @@
-import { useQuery } from '@tanstack/react-query';
-import { salesApi, inventoryApi } from '@/api';
-import { useAuthStore } from '@/store';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { 
-  ShoppingCart, 
-  Package, 
-  TrendingUp,
-  AlertTriangle,
-  ArrowRight
-} from 'lucide-react';
-import { formatCurrency } from '@/utils';
-import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query'
+import { reportsApi, notificationsApi } from '@/api'
+import { useAuthStore } from '@/store'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { formatCurrency } from '@/lib/utils'
+import { ShoppingCart, TrendingUp, FileText, Receipt, AlertTriangle, ArrowLeftRight } from 'lucide-react'
 
 const BranchDashboard = () => {
-  const { user } = useAuthStore();
-  const branchId = user?.branchId;
+  const { user } = useAuthStore()
 
-  const { data: dailySales } = useQuery({
-    queryKey: ['dailySales', branchId],
+  const { data: stats } = useQuery({
+    queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      if (!branchId) return null;
-      const response = await salesApi.getDailySummary(branchId);
-      return response.data;
+      const response = await reportsApi.getDashboardStats()
+      return response.data
     },
-    enabled: !!branchId,
-  });
+  })
 
-  const { data: inventory } = useQuery({
-    queryKey: ['inventory', branchId],
+  const { data: pendingData } = useQuery({
+    queryKey: ['pending-approvals'],
     queryFn: async () => {
-      if (!branchId) return null;
-      const response = await inventoryApi.getByBranch(branchId);
-      return response.data;
+      const response = await notificationsApi.getPendingApprovals()
+      return response.data
     },
-    enabled: !!branchId,
-  });
+  })
 
-  const lowStockItems = inventory?.filter((item: any) => item.isLowStock) || [];
+  const branchSales = stats?.recentSales?.filter((s: any) => s.branchId === user?.branchId)
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Branch Dashboard</h1>
-          <p className="text-gray-500">{user?.branch?.name}</p>
-        </div>
-        <Button asChild>
-          <Link to="/new-sale">New Sale</Link>
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold">Branch Dashboard</h1>
+        <p className="text-muted-foreground">Welcome, {user?.firstName} {user?.lastName}</p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Today's Sales
-            </CardTitle>
-            <ShoppingCart className="h-5 w-5 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{dailySales?.totalSales || 0}</div>
-            <p className="text-sm text-gray-500 mt-1">
-              {formatCurrency(dailySales?.totalAmount || 0)}
-            </p>
+      {pendingData && (pendingData.pendingTransfers > 0 || pendingData.pendingExpenses > 0) && (
+        <Card className="border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20">
+          <CardContent className="flex items-center gap-4 py-4">
+            <AlertTriangle className="w-5 h-5 text-yellow-600" />
+            <div>
+              <p className="font-medium text-yellow-800 dark:text-yellow-200">
+                Pending items: {pendingData.pendingTransfers > 0 && `${pendingData.pendingTransfers} transfers`}
+                {pendingData.pendingExpenses > 0 && ` ${pendingData.pendingExpenses} expenses`}
+              </p>
+            </div>
           </CardContent>
         </Card>
+      )}
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Products in Stock
-            </CardTitle>
-            <Package className="h-5 w-5 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{inventory?.length || 0}</div>
-            <p className="text-sm text-gray-500 mt-1">
-              {lowStockItems.length} low stock items
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Low Stock Alerts
-            </CardTitle>
-            <AlertTriangle className="h-5 w-5 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{lowStockItems.length}</div>
-            <Button variant="link" className="p-0 h-auto mt-2" asChild>
-              <Link to="/inventory">
-                View inventory <ArrowRight className="ml-1 h-4 w-4" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Button asChild className="h-auto py-6 flex flex-col items-center gap-2">
-              <Link to="/new-sale">
-                <ShoppingCart className="h-6 w-6" />
-                <span>New Sale</span>
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="h-auto py-6 flex flex-col items-center gap-2">
-              <Link to="/invoices">
-                <TrendingUp className="h-6 w-6" />
-                <span>Invoices</span>
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="h-auto py-6 flex flex-col items-center gap-2">
-              <Link to="/returns">
-                <AlertTriangle className="h-6 w-6" />
-                <span>Returns</span>
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="h-auto py-6 flex flex-col items-center gap-2">
-              <Link to="/sales-history">
-                <Package className="h-6 w-6" />
-                <span>Sales History</span>
-              </Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Recent Sales */}
-      <Card>
-        <CardHeader className="flex items-center justify-between">
-          <CardTitle>Today's Sales Summary</CardTitle>
-          <Button variant="link" asChild>
-            <Link to="/sales-history">View All</Link>
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-4 bg-gray-50 rounded-lg text-center">
-                <p className="text-sm text-gray-500">Cash Sales</p>
-                <p className="text-xl font-bold">{dailySales?.cashSales || 0}</p>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Today's Sales</p>
+                <p className="text-2xl font-bold">{stats?.todaySales || 0}</p>
               </div>
-              <div className="p-4 bg-gray-50 rounded-lg text-center">
-                <p className="text-sm text-gray-500">Invoice Sales</p>
-                <p className="text-xl font-bold">{dailySales?.invoiceSales || 0}</p>
-              </div>
-              <div className="p-4 bg-gray-50 rounded-lg text-center">
-                <p className="text-sm text-gray-500">LPG Refills</p>
-                <p className="text-xl font-bold">{dailySales?.lpgRefills || 0}</p>
-              </div>
-              <div className="p-4 bg-gray-50 rounded-lg text-center">
-                <p className="text-sm text-gray-500">Electronics</p>
-                <p className="text-xl font-bold">{dailySales?.electronics || 0}</p>
+              <div className="p-3 rounded-lg bg-blue-50">
+                <ShoppingCart className="w-6 h-6 text-blue-600" />
               </div>
             </div>
-          </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Revenue</p>
+                <p className="text-2xl font-bold">{formatCurrency(branchSales?.reduce((sum: number, s: any) => sum + Number(s.total), 0))}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-green-50">
+                <TrendingUp className="w-6 h-6 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">My Invoices</p>
+                <p className="text-2xl font-bold">{stats?.pendingInvoices || 0}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-yellow-50">
+                <FileText className="w-6 h-6 text-yellow-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Expenses</p>
+                <p className="text-2xl font-bold">{pendingData?.pendingExpenses || 0}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-purple-50">
+                <Receipt className="w-6 h-6 text-purple-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Recent Sales</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!branchSales || branchSales.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No sales yet. Start by creating a new sale!</p>
+          ) : (
+            <div className="space-y-3">
+              {branchSales.slice(0, 5).map((sale: any) => (
+                <div key={sale.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                  <div>
+                    <p className="font-medium">{sale.saleCode}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {sale.items?.length} item(s) | {sale.customerName || 'Walk-in'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold">{formatCurrency(sale.total)}</p>
+                    <Badge variant={sale.type === 'CASH' ? 'default' : 'secondary'} className="text-xs">
+                      {sale.type}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
-  );
-};
+  )
+}
 
-export default BranchDashboard;
+export default BranchDashboard

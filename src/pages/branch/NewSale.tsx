@@ -1,113 +1,88 @@
-import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { productsApi, salesApi, inventoryApi } from '@/api';
-import { useAuthStore, useCartStore } from '@/store';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { 
-  ShoppingCart, 
-  Minus, 
-  Plus, 
-  Trash2, 
-  User, 
-  Phone,
-  Search,
-  Package,
-  Flame
-} from 'lucide-react';
-import { formatCurrency } from '@/utils';
-import { toast } from 'sonner';
-import { ProductType, SaleType } from '@/types';
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { productsApi, inventoryApi, salesApi, customersApi } from '@/api'
+import { useAuthStore, useCartStore } from '@/store'
+import { SaleType } from '@/types'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { formatCurrency } from '@/lib/utils'
+import { toast } from 'sonner'
+import {
+  ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Zap, Tag
+} from 'lucide-react'
 
 const NewSale = () => {
-  const { user } = useAuthStore();
-  const { items, addItem, removeItem, updateQuantity, clearCart, getTotal, customerName, customerPhone, setCustomerInfo } = useCartStore();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('all');
-  const [showCheckout, setShowCheckout] = useState(false);
-  const [saleType, setSaleType] = useState<SaleType>(SaleType.CASH);
+  const { user } = useAuthStore()
+  const { items, addItem, removeItem, updateQuantity, clearCart, getSubtotal, getTotal, customerName, customerPhone, setCustomerInfo, discount, setDiscount } = useCartStore()
+  const queryClient = useQueryClient()
+  const [search, setSearch] = useState('')
+  const [saleType, setSaleType] = useState<SaleType>(SaleType.CASH)
+  const [activeCategory, setActiveCategory] = useState('all')
 
-  const branchId = user?.branchId;
+  const branchId = user?.branchId || ''
 
   const { data: products } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
-      const response = await productsApi.getAll();
-      return response.data;
+      const response = await productsApi.getAll({ isActive: true })
+      return response.data
     },
-  });
+  })
 
   const { data: inventory } = useQuery({
     queryKey: ['inventory', branchId],
     queryFn: async () => {
-      if (!branchId) return null;
-      const response = await inventoryApi.getByBranch(branchId);
-      return response.data;
+      if (!branchId) return []
+      const response = await inventoryApi.getAll({ branchId })
+      return response.data
     },
     enabled: !!branchId,
-  });
+  })
+
+  const { data: customers } = useQuery({
+    queryKey: ['customers'],
+    queryFn: async () => {
+      const response = await customersApi.getAll({ isInvoiceEligible: true })
+      return response.data
+    },
+    enabled: saleType === SaleType.INVOICE,
+  })
 
   const createSaleMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const response = await salesApi.create(data);
-      return response.data;
-    },
-    onSuccess: (data) => {
-      toast.success(`Sale completed! Code: ${data.saleCode}`);
-      clearCart();
-      setShowCheckout(false);
+    mutationFn: (data: any) => salesApi.create(data),
+    onSuccess: (response) => {
+      toast.success(`Sale completed! Code: ${response.data.saleCode}`)
+      clearCart()
+      queryClient.invalidateQueries({ queryKey: ['sales'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Failed to create sale');
+      toast.error(error.response?.data?.message || 'Failed to create sale')
     },
-  });
+  })
 
-  // Filter products by category and search
+  const getStock = (productId: string) => {
+    const inv = inventory?.find((i: any) => i.productId === productId)
+    return inv?.quantity || 0
+  }
+
   const filteredProducts = products?.filter((product: any) => {
-    const matchesCategory = activeCategory === 'all' || product.type === activeCategory;
-    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         product.code.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
-
-  // Get stock for a product
-  const getProductStock = (productId: string) => {
-    const item = inventory?.find((inv: any) => inv.productId === productId);
-    return item?.quantity || 0;
-  };
-
-  const handleAddToCart = (product: any) => {
-    const stock = getProductStock(product.id);
-    const cartItem = items.find(item => item.productId === product.id);
-    const currentQty = cartItem?.quantity || 0;
-
-    if (currentQty >= stock) {
-      toast.error('Insufficient stock');
-      return;
-    }
-
-    addItem(product, 1);
-    toast.success(`${product.name} added to cart`);
-  };
+    const matchesCategory = activeCategory === 'all' || product.type === activeCategory
+    const matchesSearch = !search || 
+      product.name.toLowerCase().includes(search.toLowerCase()) ||
+      product.code.toLowerCase().includes(search.toLowerCase())
+    return matchesCategory && matchesSearch
+  })
 
   const handleCheckout = () => {
     if (items.length === 0) {
-      toast.error('Cart is empty');
-      return;
-    }
-    setShowCheckout(true);
-  };
-
-  const handleCompleteSale = () => {
-    if (!branchId) {
-      toast.error('No branch assigned');
-      return;
+      toast.error('Cart is empty')
+      return
     }
 
     const saleData = {
@@ -115,209 +90,116 @@ const NewSale = () => {
       type: saleType,
       customerName: customerName || undefined,
       customerPhone: customerPhone || undefined,
+      discount,
       items: items.map(item => ({
         productId: item.productId,
         quantity: item.quantity,
       })),
-    };
+    }
 
-    createSaleMutation.mutate(saleData);
-  };
+    createSaleMutation.mutate(saleData)
+  }
 
   const categories = [
-    { id: 'all', label: 'All Products', icon: Package },
-    { id: ProductType.LPG_REFILL, label: 'LPG Refills', icon: Flame },
-    { id: ProductType.LPG_CYLINDER, label: 'Cylinders', icon: Package },
-    { id: ProductType.ELECTRONICS, label: 'Electronics', icon: Package },
-  ];
+    { id: 'all', label: 'All', icon: Package },
+    { id: 'LPG_REFILL', label: 'LPG Refills', icon: Flame },
+    { id: 'LPG_CYLINDER', label: 'Cylinders', icon: Package },
+    { id: 'ELECTRONICS', label: 'Electronics', icon: Zap },
+  ]
 
   return (
-    <div className="h-[calc(100vh-6rem)] flex gap-6">
-      {/* Products Section */}
-      <div className="flex-1 flex flex-col">
-        {/* Search and Categories */}
-        <Card className="mb-4">
-          <CardContent className="pt-6">
-            <div className="flex gap-4 mb-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search products..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            <Tabs value={activeCategory} onValueChange={setActiveCategory}>
-              <TabsList className="grid grid-cols-4">
-                {categories.map((cat) => (
-                  <TabsTrigger key={cat.id} value={cat.id} className="flex items-center gap-2">
-                    <cat.icon className="h-4 w-4" />
-                    <span className="hidden sm:inline">{cat.label}</span>
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </CardContent>
-        </Card>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold">New Sale</h1>
+        <p className="text-muted-foreground">Create a new sale transaction</p>
+      </div>
 
-        {/* Products Grid */}
-        <div className="flex-1 overflow-auto">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Products Section */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search products by name or code..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          {/* Categories */}
+          <Tabs value={activeCategory} onValueChange={setActiveCategory}>
+            <TabsList className="grid grid-cols-4">
+              {categories.map(cat => (
+                <TabsTrigger key={cat.id} value={cat.id} className="flex items-center gap-2">
+                  <cat.icon className="w-4 h-4" />
+                  <span className="hidden sm:inline">{cat.label}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+
+          {/* Products Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {filteredProducts?.map((product: any) => {
-              const stock = getProductStock(product.id);
-              const isLowStock = stock <= product.minStockLevel;
+              const stock = getStock(product.id)
+              const cartItem = items.find(i => i.productId === product.id)
+              const inCart = cartItem?.quantity || 0
 
               return (
-                <Card 
-                  key={product.id} 
-                  className={`cursor-pointer transition-shadow hover:shadow-lg ${stock === 0 ? 'opacity-50' : ''}`}
-                  onClick={() => stock > 0 && handleAddToCart(product)}
+                <Card
+                  key={product.id}
+                  className={`cursor-pointer transition-all hover:shadow-md ${stock === 0 ? 'opacity-50' : ''}`}
+                  onClick={() => {
+                    if (stock > inCart) {
+                      addItem(product, 1)
+                      toast.success(`${product.name} added`)
+                    } else {
+                      toast.error('Insufficient stock')
+                    }
+                  }}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between mb-2">
-                      <Badge variant={product.type === ProductType.LPG_REFILL ? 'default' : 'secondary'}>
-                        {product.type === ProductType.LPG_REFILL ? 'Refill' : 
-                         product.type === ProductType.LPG_CYLINDER ? 'Cylinder' : 'Product'}
-                      </Badge>
-                      <Badge variant={isLowStock ? 'destructive' : 'outline'}>
-                        Stock: {stock}
-                      </Badge>
+                      <Badge variant="secondary" className="text-xs">{product.type.replace('_', ' ')}</Badge>
+                      <span className={`text-xs font-medium ${stock <= 10 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                        {stock} left
+                      </span>
                     </div>
-                    <h3 className="font-medium text-sm mb-1">{product.name}</h3>
-                    <p className="text-lg font-bold text-blue-600">
-                      {formatCurrency(product.price)}
-                    </p>
-                    {product.cylinderSize && (
-                      <p className="text-xs text-gray-500">{product.cylinderSize}</p>
-                    )}
+                    <h4 className="font-medium text-sm mb-1 truncate">{product.name}</h4>
+                    <p className="text-lg font-bold text-primary">{formatCurrency(product.price)}</p>
+                    {product.cylinderSize && <p className="text-xs text-muted-foreground">{product.cylinderSize}</p>}
                   </CardContent>
                 </Card>
-              );
+              )
             })}
           </div>
-        </div>
-      </div>
 
-      {/* Cart Section */}
-      <Card className="w-96 flex flex-col">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5" />
-            Cart ({items.length})
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent className="flex-1 overflow-auto">
-          {items.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <ShoppingCart className="h-12 w-12 mx-auto mb-4 opacity-30" />
-              <p>Cart is empty</p>
-              <p className="text-sm">Click products to add</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {items.map((item) => (
-                <div key={item.productId} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">{item.product.name}</p>
-                    <p className="text-sm text-gray-500">
-                      {formatCurrency(item.unitPrice)} x {item.quantity}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => updateQuantity(item.productId, Math.max(0, item.quantity - 1))}
-                    >
-                      <Minus className="h-3 w-3" />
-                    </Button>
-                    <span className="w-8 text-center">{item.quantity}</span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => {
-                        const stock = getProductStock(item.productId);
-                        if (item.quantity < stock) {
-                          updateQuantity(item.productId, item.quantity + 1);
-                        } else {
-                          toast.error('Insufficient stock');
-                        }
-                      }}
-                    >
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-red-500"
-                      onClick={() => removeItem(item.productId)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+          {filteredProducts?.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              <Package className="w-12 h-12 mx-auto mb-4 opacity-30" />
+              <p>No products found</p>
             </div>
           )}
-        </CardContent>
+        </div>
 
-        <CardFooter className="flex-col border-t pt-4">
-          <div className="w-full space-y-3 mb-4">
-            <div className="flex items-center gap-2">
-              <User className="h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Customer name (optional)"
-                value={customerName}
-                onChange={(e) => setCustomerInfo(e.target.value, customerPhone)}
-                className="flex-1"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Phone className="h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Customer phone (optional)"
-                value={customerPhone}
-                onChange={(e) => setCustomerInfo(customerName, e.target.value)}
-                className="flex-1"
-              />
-            </div>
-          </div>
-
-          <div className="w-full flex items-center justify-between mb-4">
-            <span className="text-gray-600">Total</span>
-            <span className="text-2xl font-bold">{formatCurrency(getTotal())}</span>
-          </div>
-
-          <Button 
-            className="w-full" 
-            size="lg"
-            disabled={items.length === 0}
-            onClick={handleCheckout}
-          >
-            Checkout
-          </Button>
-        </CardFooter>
-      </Card>
-
-      {/* Checkout Dialog */}
-      <Dialog open={showCheckout} onOpenChange={setShowCheckout}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Complete Sale</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div>
-              <Label>Sale Type</Label>
-              <div className="flex gap-4 mt-2">
+        {/* Cart Section */}
+        <div className="space-y-4">
+          <Card className="sticky top-24">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5" />
+                Cart ({items.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Sale Type */}
+              <div className="flex gap-2">
                 <Button
                   variant={saleType === SaleType.CASH ? 'default' : 'outline'}
                   className="flex-1"
+                  size="sm"
                   onClick={() => setSaleType(SaleType.CASH)}
                 >
                   Cash
@@ -325,46 +207,108 @@ const NewSale = () => {
                 <Button
                   variant={saleType === SaleType.INVOICE ? 'default' : 'outline'}
                   className="flex-1"
+                  size="sm"
                   onClick={() => setSaleType(SaleType.INVOICE)}
                 >
                   Invoice
                 </Button>
               </div>
-            </div>
 
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h4 className="font-medium mb-2">Order Summary</h4>
-              <div className="space-y-1">
-                {items.map((item) => (
-                  <div key={item.productId} className="flex justify-between text-sm">
-                    <span>{item.product.name} x {item.quantity}</span>
-                    <span>{formatCurrency(item.total)}</span>
+              {/* Cart Items */}
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {items.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-4">Cart is empty</p>
+                ) : (
+                  items.map((item) => (
+                    <div key={item.productId} className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.product.name}</p>
+                        <p className="text-xs text-muted-foreground">{formatCurrency(item.unitPrice)}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.productId, item.quantity - 1)}>
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <span className="w-6 text-center text-sm">{item.quantity}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            const stock = getStock(item.productId)
+                            if (item.quantity < stock) {
+                              updateQuantity(item.productId, item.quantity + 1)
+                            } else {
+                              toast.error('Max stock reached')
+                            }
+                          }}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItem(item.productId)}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Customer Info */}
+              <div className="space-y-2">
+                <Input placeholder="Customer name (optional)" value={customerName} onChange={e => setCustomerInfo(e.target.value, customerPhone)} />
+                <Input placeholder="Customer phone (optional)" value={customerPhone} onChange={e => setCustomerInfo(customerName, e.target.value)} />
+              </div>
+
+              {/* Discount */}
+              <div className="flex items-center gap-2">
+                <Tag className="w-4 h-4 text-muted-foreground" />
+                <Input
+                  type="number"
+                  placeholder="Discount (KES)"
+                  value={discount || ''}
+                  onChange={e => setDiscount(Number(e.target.value))}
+                  className="flex-1"
+                />
+              </div>
+
+              <Separator />
+
+              {/* Totals */}
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span>{formatCurrency(getSubtotal())}</span>
+                </div>
+                {discount > 0 && (
+                  <div className="flex justify-between text-destructive">
+                    <span>Discount</span>
+                    <span>-{formatCurrency(discount)}</span>
                   </div>
-                ))}
+                )}
+                <div className="flex justify-between text-lg font-bold">
+                  <span>Total</span>
+                  <span>{formatCurrency(getTotal())}</span>
+                </div>
               </div>
-              <Separator className="my-2" />
-              <div className="flex justify-between font-bold">
-                <span>Total</span>
-                <span>{formatCurrency(getTotal())}</span>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCheckout(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleCompleteSale}
-              disabled={createSaleMutation.isPending}
-            >
-              {createSaleMutation.isPending ? 'Processing...' : 'Complete Sale'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </CardContent>
+            <CardFooter>
+              <Button
+                className="w-full"
+                size="lg"
+                disabled={items.length === 0 || createSaleMutation.isPending}
+                onClick={handleCheckout}
+              >
+                {createSaleMutation.isPending ? 'Processing...' : 'Complete Sale'}
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      </div>
     </div>
-  );
-};
+  )
+}
 
-export default NewSale;
+export default NewSale

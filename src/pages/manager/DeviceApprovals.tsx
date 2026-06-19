@@ -1,1 +1,0 @@
-const DeviceApprovals = () => <div><h1>Device Approvals</h1></div>; export default DeviceApprovals;
