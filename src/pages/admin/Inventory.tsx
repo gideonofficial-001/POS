@@ -450,4 +450,92 @@ const Inventory = () => {
       {/* 2. Edit Price Dialog */}
       <Dialog open={isEditPriceOpen} onOpenChange={setIsEditPriceOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit Price: {selectedItem?.product?.name}</Dialog
+          <DialogHeader><DialogTitle>Edit Price: {selectedItem?.product?.name}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Selling Price (KES)</label>
+              <Input type="number" value={editPrice} onChange={(e) => setEditPrice(Number(e.target.value))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditPriceOpen(false)}>Cancel</Button>
+            <Button onClick={() => updatePriceMutation.mutate({ id: selectedItem.product.id, price: editPrice })}>
+              {updatePriceMutation.isPending ? 'Updating...' : 'Update Price'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 3. Add Category Dialog */}
+      <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add New Category</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Category Name</label>
+              <Input placeholder="e.g. 6kg Cylinders, Regulators" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddCategoryOpen(false)}>Cancel</Button>
+            <Button onClick={() => createCategoryMutation.mutate(newCategoryName)}>
+              {createCategoryMutation.isPending ? 'Creating...' : 'Create Category'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 4. Add Product Dialog */}
+      <Dialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add New Product</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4 grid grid-cols-2 gap-4">
+            <div className="space-y-2 col-span-2">
+              <label className="text-sm font-medium">Product Name</label>
+              <Input placeholder="e.g. K-Gas 6kg Refill" value={newProduct.name} onChange={(e) => setNewProduct({...newProduct, name: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Product Code</label>
+              <Input placeholder="e.g. REF-6KG-KGAS" value={newProduct.code} onChange={(e) => setNewProduct({...newProduct, code: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Category</label>
+              <Select onValueChange={(val) => setNewProduct({...newProduct, categoryId: val})}>
+                <SelectTrigger><SelectValue placeholder="Select Category" /></SelectTrigger>
+                <SelectContent>
+                  {categories?.map((cat: any) => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Type</label>
+              <Select value={newProduct.type} onValueChange={(val) => setNewProduct({...newProduct, type: val})}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="LPG_REFILL">LPG Refill</SelectItem>
+                  <SelectItem value="LPG_CYLINDER">New Cylinder</SelectItem>
+                  <SelectItem value="ACCESSORIES">Accessories</SelectItem>
+                  <SelectItem value="ELECTRONICS">Electronics</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Price (KES)</label>
+              <Input type="number" value={newProduct.price} onChange={(e) => setNewProduct({...newProduct, price: Number(e.target.value)})} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddProductOpen(false)}>Cancel</Button>
+            <Button onClick={() => createProductMutation.mutate(newProduct)}>
+              {createProductMutation.isPending ? 'Saving...' : 'Save Product'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+export default Inventory
