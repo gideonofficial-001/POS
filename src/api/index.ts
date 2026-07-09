@@ -90,11 +90,12 @@ export const inventoryApi = {
   getAll: (params?: any) => api.get('/inventory', { params }),
   getById: (id: string) => api.get(`/inventory/${id}`),
   restock: (id: string, quantity: number) => api.post(`/inventory/${id}/restock`, { quantity }),
-  adjustStock: (id: string, quantity: number, reason: string) =>
-    api.post(`/inventory/${id}/adjust`, { quantity, reason }),
+  adjustStock: (id: string, payload: { quantity?: number; fullCylinders?: number; emptyCylinders?: number; reason: string }) =>
+    api.post(`/inventory/${id}/adjust`, payload),
   getLowStock: () => api.get('/inventory/low-stock'),
   getMovements: (params?: any) => api.get('/inventory/movements', { params }),
 }
+
 
 // Customers API
 export const customersApi = {
