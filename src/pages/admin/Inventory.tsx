@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { inventoryApi, branchesApi, productsApi } from '@/api'
 import { useAuthStore } from '@/store'
@@ -20,8 +20,6 @@ const Inventory = () => {
     user?.role === UserRole.BRANCH_MANAGER ? user.branchId || '' : ''
   )
   const [showLowStock, setShowLowStock] = useState(false)
-
-  // Track pagination page for each category independently
   const [pageMap, setPageMap] = useState<Record<string, number>>({})
 
   // ==========================================
@@ -38,15 +36,11 @@ const Inventory = () => {
 
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
+  const [isLpgCategory, setIsLpgCategory] = useState(false) // The new checkbox state
 
   const [isAddProductOpen, setIsAddProductOpen] = useState(false)
   const [newProduct, setNewProduct] = useState({
-    name: '',
-    code: '',
-    type: 'ACCESSORIES',
-    categoryId: '',
-    price: 0,
-    minStockLevel: 10
+    name: '', code: '', type: 'ACCESSORIES', categoryId: '', price: 0, minStockLevel: 10
   })
 
   // ==========================================
@@ -54,10 +48,7 @@ const Inventory = () => {
   // ==========================================
   const { data: branches, isLoading: isLoadingBranches } = useQuery({
     queryKey: ['branches'],
-    queryFn: async () => {
-      const response = await branchesApi.getAll()
-      return response.data
-    },
+    queryFn: async () => (await branchesApi.getAll()).data,
     enabled: user?.role !== UserRole.BRANCH_MANAGER && !activeBranchId,
   })
 
@@ -66,19 +57,15 @@ const Inventory = () => {
     queryFn: async () => {
       const params: any = { branchId: activeBranchId }
       if (showLowStock) params.lowStock = true
-      const response = await inventoryApi.getAll(params)
-      return response.data
+      return (await inventoryApi.getAll(params)).data
     },
     enabled: !!activeBranchId,
   })
 
+  // Notice we removed the role restriction so managers can see empty categories too
   const { data: categories } = useQuery({
     queryKey: ['categories'],
-    queryFn: async () => {
-      const response = await productsApi.getCategories()
-      return response.data
-    },
-    enabled: user?.role === UserRole.SUPER_ADMIN,
+    queryFn: async () => (await productsApi.getCategories()).data,
   })
 
   const activeBranch = branches?.find((b: any) => b.id === activeBranchId) || inventory?.[0]?.branch
@@ -87,9 +74,8 @@ const Inventory = () => {
   // MUTATIONS
   // ==========================================
   const adjustStockMutation = useMutation({
-    mutationFn: async (data: { id: string, quantity: number, reason: string }) => {
-      return await inventoryApi.adjustStock(data.id, data.quantity, data.reason)
-    },
+    mutationFn: async (data: { id: string, quantity: number, reason: string }) => 
+      await inventoryApi.adjustStock(data.id, data.quantity, data.reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsAdjustStockOpen(false)
@@ -97,9 +83,7 @@ const Inventory = () => {
   })
 
   const updatePriceMutation = useMutation({
-    mutationFn: async (data: { id: string, price: number }) => {
-      return await productsApi.update(data.id, { price: data.price })
-    },
+    mutationFn: async (data: { id: string, price: number }) => await productsApi.update(data.id, { price: data.price }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsEditPriceOpen(false)
@@ -113,16 +97,16 @@ const Inventory = () => {
 
   const deleteCategoryMutation = useMutation({
     mutationFn: async (categoryId: string) => await productsApi.deleteCategory(categoryId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories'] })
   })
 
   const createCategoryMutation = useMutation({
     mutationFn: async (name: string) => await productsApi.createCategory(name, ''),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] })
-      queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsAddCategoryOpen(false)
       setNewCategoryName('')
+      setIsLpgCategory(false)
     }
   })
 
@@ -136,30 +120,31 @@ const Inventory = () => {
   })
 
   // ==========================================
-  // DATA TRANSFORMATION
+  // DATA TRANSFORMATION (Empty Categories included)
   // ==========================================
-  const groupedInventory = useMemo(() => {
-    if (!inventory) return {}
-    const filtered = inventory.filter((item: any) => {
-      if (!search) return true
-      const term = search.toLowerCase()
-      return (
-        item.product?.name?.toLowerCase().includes(term) ||
-        item.product?.code?.toLowerCase().includes(term)
-      )
-    })
-
-    return filtered.reduce((acc: any, item: any) => {
-      const catName = item.product?.category?.name || 'Uncategorized'
-      const catId = item.product?.categoryId || 'uncategorized'
+  const categoriesWithItems = useMemo(() => {
+    if (!categories) return []
+    
+    return categories.map((cat: any) => {
+      // Find all inventory items that belong to this category
+      let items = inventory?.filter((inv: any) => inv.product?.categoryId === cat.id) || []
       
-      if (!acc[catName]) acc[catName] = { id: catId, items: [] }
-      acc[catName].items.push(item)
-      return acc
-    }, {})
-  }, [inventory, search])
+      // Apply search filter
+      if (search) {
+        const term = search.toLowerCase()
+        items = items.filter((item: any) => 
+          item.product?.name?.toLowerCase().includes(term) ||
+          item.product?.code?.toLowerCase().includes(term)
+        )
+      }
+      return { ...cat, items }
+    })
+  }, [categories, inventory, search])
 
 
+  // ==========================================
+  // VIEW 1: Branch Selection (Admin/GM Only)
+  // ==========================================
   if (!activeBranchId && user?.role !== UserRole.BRANCH_MANAGER) {
     return (
       <div className="space-y-6">
@@ -197,9 +182,11 @@ const Inventory = () => {
     )
   }
 
+  // ==========================================
+  // VIEW 2: Specific Branch Inventory
+  // ==========================================
   return (
     <div className="space-y-6 pb-10">
-      {/* Header section */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -248,47 +235,39 @@ const Inventory = () => {
 
       {isLoadingInventory ? (
         <Card><CardContent className="p-12 text-center text-muted-foreground">Loading inventory...</CardContent></Card>
-      ) : Object.keys(groupedInventory).length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center text-muted-foreground">
-            <PackageSearch className="w-16 h-16 mx-auto mb-4 opacity-20" />
-            <p className="text-lg">No inventory items found for this branch.</p>
-          </CardContent>
-        </Card>
       ) : (
         <div className="space-y-10">
-          {Object.entries(groupedInventory).map(([categoryName, categoryData]: [string, any]) => {
+          {categoriesWithItems.map((category: any) => {
+            const isLpgConfig = category.name.toUpperCase().includes('LPG');
+            
             // Pagination Logic
-            const currentPage = pageMap[categoryName] || 1;
+            const currentPage = pageMap[category.id] || 1;
             const itemsPerPage = 10;
-            const totalPages = Math.ceil(categoryData.items.length / itemsPerPage);
-            const paginatedItems = categoryData.items.slice(
-              (currentPage - 1) * itemsPerPage,
-              currentPage * itemsPerPage
-            );
+            const totalPages = Math.ceil(category.items.length / itemsPerPage);
+            const paginatedItems = category.items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
             return (
-              <div key={categoryName} className="flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
+              <div key={category.id} className="flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
                 
                 {/* PROMINENT CATEGORY HEADER */}
-                <div className="bg-slate-100/50 dark:bg-slate-800/50 p-4 border-b flex items-center justify-between">
+                <div className="bg-slate-100/50 p-4 border-b flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <h2 className="text-xl font-bold tracking-tight text-primary">
-                      {categoryName}
+                      {category.name}
                     </h2>
                     <Badge variant="outline" className="bg-background">
-                      {categoryData.items.length} Items
+                      {category.items.length} Items
                     </Badge>
                   </div>
                   
-                  {user?.role === UserRole.SUPER_ADMIN && categoryData.id !== 'uncategorized' && (
+                  {user?.role === UserRole.SUPER_ADMIN && (
                     <Button 
                       variant="ghost" 
                       size="sm" 
                       className="text-destructive hover:bg-destructive/10 h-8"
                       onClick={() => {
-                        if(confirm(`Are you sure you want to delete the ${categoryName} category?`)) {
-                          deleteCategoryMutation.mutate(categoryData.id)
+                        if(confirm(`Are you sure you want to delete the ${category.name} category?`)) {
+                          deleteCategoryMutation.mutate(category.id)
                         }
                       }}
                     >
@@ -304,7 +283,18 @@ const Inventory = () => {
                       <TableRow className="bg-muted/30 hover:bg-muted/30">
                         <TableHead className="w-[35%]">Product Name</TableHead>
                         <TableHead>Price (KES)</TableHead>
-                        <TableHead>Quantity</TableHead>
+                        
+                        {/* DYNAMIC COLUMNS */}
+                        {isLpgConfig ? (
+                          <>
+                            <TableHead className="text-blue-600 font-bold">REFILLS (Full)</TableHead>
+                            <TableHead className="text-amber-600 font-bold">CYLINDERS (Empty)</TableHead>
+                            <TableHead>Total Shells</TableHead>
+                          </>
+                        ) : (
+                          <TableHead>Quantity</TableHead>
+                        )}
+                        
                         <TableHead className="hidden sm:table-cell">Status</TableHead>
                         {user?.role === UserRole.SUPER_ADMIN && (
                           <TableHead className="text-right pr-6">Actions</TableHead>
@@ -312,78 +302,101 @@ const Inventory = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paginatedItems.map((item: any) => {
-                        const isLowStock = item.quantity <= item.minimumQuantity;
-                        return (
-                          <TableRow key={item.id} className="group">
-                            <TableCell className="font-medium">
-                              {item.product?.name}
-                              {item.product?.code && (
-                                <span className="block text-xs text-muted-foreground font-normal mt-0.5">
-                                  {item.product.code}
-                                </span>
-                              )}
-                            </TableCell>
-
-                            <TableCell className="text-muted-foreground font-medium">
-                              {Number(item.product?.price).toLocaleString()}
-                            </TableCell>
-                            
-                            <TableCell className={`text-lg font-bold ${isLowStock ? 'text-destructive' : ''}`}>
-                              {item.quantity}
-                            </TableCell>
-                            
-                            <TableCell className="hidden sm:table-cell">
-                              {isLowStock ? (
-                                <Badge variant="destructive" className="shadow-sm">
-                                  Low ({item.minimumQuantity} min)
-                                </Badge>
-                              ) : (
-                                <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none">
-                                  OK
-                                </Badge>
-                              )}
-                            </TableCell>
-
-                            {user?.role === UserRole.SUPER_ADMIN && (
-                              <TableCell className="text-right pr-4">
-                                <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-8 w-8 hover:bg-green-50"
-                                    onClick={() => {
-                                      setSelectedItem(item); setEditPrice(Number(item.product.price)); setIsEditPriceOpen(true);
-                                    }}
-                                  >
-                                    <DollarSign className="w-4 h-4 text-green-600" />
-                                  </Button>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-8 w-8 hover:bg-blue-50"
-                                    onClick={() => {
-                                      setSelectedItem(item); setAdjustQuantity(item.quantity); setAdjustReason('Physical stock recount'); setIsAdjustStockOpen(true);
-                                    }}
-                                  >
-                                    <Settings2 className="w-4 h-4 text-blue-600" />
-                                  </Button>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-8 w-8 hover:bg-red-50"
-                                    onClick={() => {
-                                      if(confirm(`Permanently delete ${item.product.name}?`)) deleteProductMutation.mutate(item.product.id)
-                                    }}
-                                  >
-                                    <Trash2 className="w-4 h-4 text-destructive" />
-                                  </Button>
-                                </div>
+                      {paginatedItems.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={isLpgConfig ? 7 : 5} className="text-center h-24 text-muted-foreground">
+                            No products available in this category.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        paginatedItems.map((item: any) => {
+                          const isLowStock = item.quantity <= item.minimumQuantity;
+                          return (
+                            <TableRow key={item.id} className="group">
+                              <TableCell className="font-medium">
+                                {item.product?.name}
+                                {item.product?.code && (
+                                  <span className="block text-xs text-muted-foreground font-normal mt-0.5">
+                                    {item.product.code}
+                                  </span>
+                                )}
                               </TableCell>
-                            )}
-                          </TableRow>
-                        )
-                      })}
+
+                              <TableCell className="text-muted-foreground font-medium">
+                                {Number(item.product?.price).toLocaleString()}
+                              </TableCell>
+                              
+                              {/* DYNAMIC DATA CELLS */}
+                              {isLpgConfig ? (
+                                <>
+                                  <TableCell className="text-lg font-bold text-blue-600">
+                                    {item.fullCylinders || 0}
+                                  </TableCell>
+                                  <TableCell className="text-lg font-bold text-amber-600">
+                                    {item.emptyCylinders || 0}
+                                  </TableCell>
+                                  <TableCell className="text-lg font-bold">
+                                    {item.quantity}
+                                  </TableCell>
+                                </>
+                              ) : (
+                                <TableCell className={`text-lg font-bold ${isLowStock ? 'text-destructive' : ''}`}>
+                                  {item.quantity}
+                                </TableCell>
+                              )}
+                              
+                              <TableCell className="hidden sm:table-cell">
+                                {isLowStock ? (
+                                  <Badge variant="destructive" className="shadow-sm">
+                                    Low ({item.minimumQuantity} min)
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none">
+                                    OK
+                                  </Badge>
+                                )}
+                              </TableCell>
+
+                              {user?.role === UserRole.SUPER_ADMIN && (
+                                <TableCell className="text-right pr-4">
+                                  <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      className="h-8 w-8 hover:bg-green-50"
+                                      onClick={() => {
+                                        setSelectedItem(item); setEditPrice(Number(item.product.price)); setIsEditPriceOpen(true);
+                                      }}
+                                    >
+                                      <DollarSign className="w-4 h-4 text-green-600" />
+                                    </Button>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      className="h-8 w-8 hover:bg-blue-50"
+                                      onClick={() => {
+                                        setSelectedItem(item); setAdjustQuantity(item.quantity); setAdjustReason('Physical stock recount'); setIsAdjustStockOpen(true);
+                                      }}
+                                    >
+                                      <Settings2 className="w-4 h-4 text-blue-600" />
+                                    </Button>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      className="h-8 w-8 hover:bg-red-50"
+                                      onClick={() => {
+                                        if(confirm(`Permanently delete ${item.product.name}?`)) deleteProductMutation.mutate(item.product.id)
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4 text-destructive" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          )
+                        })
+                      )}
                     </TableBody>
                   </Table>
                 </div>
@@ -392,14 +405,14 @@ const Inventory = () => {
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between px-4 py-3 bg-muted/20 border-t">
                     <span className="text-sm text-muted-foreground">
-                      Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, categoryData.items.length)} of {categoryData.items.length} items
+                      Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, category.items.length)} of {category.items.length} items
                     </span>
                     <div className="flex gap-2">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         disabled={currentPage === 1}
-                        onClick={() => setPageMap(prev => ({ ...prev, [categoryName]: currentPage - 1 }))}
+                        onClick={() => setPageMap(prev => ({ ...prev, [category.id]: currentPage - 1 }))}
                       >
                         Previous
                       </Button>
@@ -407,14 +420,13 @@ const Inventory = () => {
                         variant="outline" 
                         size="sm" 
                         disabled={currentPage === totalPages}
-                        onClick={() => setPageMap(prev => ({ ...prev, [categoryName]: currentPage + 1 }))}
+                        onClick={() => setPageMap(prev => ({ ...prev, [category.id]: currentPage + 1 }))}
                       >
                         Next
                       </Button>
                     </div>
                   </div>
                 )}
-
               </div>
             )
           })}
@@ -424,13 +436,52 @@ const Inventory = () => {
       {/* ==============================================
           MODALS
           ============================================== */}
-      {/* 1. Adjust Stock Dialog */}
+      
+      {/* 1. Add Category Dialog with the Checkbox */}
+      <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add New Category</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Category Name</label>
+              <Input placeholder="e.g. 50Kg" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
+            </div>
+            
+            <div className="flex items-center space-x-2 pt-2">
+              <input 
+                type="checkbox" 
+                id="lpg-check" 
+                className="w-4 h-4 text-primary rounded border-gray-300"
+                checked={isLpgCategory}
+                onChange={(e) => setIsLpgCategory(e.target.checked)}
+              />
+              <label htmlFor="lpg-check" className="text-sm font-medium cursor-pointer">
+                This is an LPG Category (Enable Refill & Empty Columns)
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddCategoryOpen(false)}>Cancel</Button>
+            <Button onClick={() => {
+              // Smart append: if they checked the box but didn't write LPG, we append it for them.
+              const finalName = (isLpgCategory && !newCategoryName.toUpperCase().includes('LPG')) 
+                ? `${newCategoryName} LPG` 
+                : newCategoryName;
+              createCategoryMutation.mutate(finalName);
+            }}>
+              {createCategoryMutation.isPending ? 'Creating...' : 'Create Category'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 2. Adjust Stock Dialog */}
       <Dialog open={isAdjustStockOpen} onOpenChange={setIsAdjustStockOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Adjust Stock: {selectedItem?.product?.name}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">New Quantity</label>
+              <label className="text-sm font-medium">New Total Quantity</label>
               <Input type="number" value={adjustQuantity} onChange={(e) => setAdjustQuantity(Number(e.target.value))} />
             </div>
             <div className="space-y-2">
@@ -447,7 +498,7 @@ const Inventory = () => {
         </DialogContent>
       </Dialog>
 
-      {/* 2. Edit Price Dialog */}
+      {/* 3. Edit Price Dialog */}
       <Dialog open={isEditPriceOpen} onOpenChange={setIsEditPriceOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Edit Price: {selectedItem?.product?.name}</DialogTitle></DialogHeader>
@@ -461,25 +512,6 @@ const Inventory = () => {
             <Button variant="outline" onClick={() => setIsEditPriceOpen(false)}>Cancel</Button>
             <Button onClick={() => updatePriceMutation.mutate({ id: selectedItem.product.id, price: editPrice })}>
               {updatePriceMutation.isPending ? 'Updating...' : 'Update Price'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 3. Add Category Dialog */}
-      <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Add New Category</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Category Name</label>
-              <Input placeholder="e.g. 6kg Cylinders, Regulators" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddCategoryOpen(false)}>Cancel</Button>
-            <Button onClick={() => createCategoryMutation.mutate(newCategoryName)}>
-              {createCategoryMutation.isPending ? 'Creating...' : 'Create Category'}
             </Button>
           </DialogFooter>
         </DialogContent>
