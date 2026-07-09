@@ -73,14 +73,20 @@ const Inventory = () => {
   // ==========================================
   // MUTATIONS
   // ==========================================
-  const adjustStockMutation = useMutation({
-    mutationFn: async (data: { id: string, quantity: number, reason: string }) => 
-      await inventoryApi.adjustStock(data.id, data.quantity, data.reason),
+    const adjustStockMutation = useMutation({
+    mutationFn: async (data: { id: string; quantity?: number; fullCylinders?: number; emptyCylinders?: number; reason: string }) => 
+      await inventoryApi.adjustStock(data.id, {
+        quantity: data.quantity,
+        fullCylinders: data.fullCylinders,
+        emptyCylinders: data.emptyCylinders,
+        reason: data.reason
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsAdjustStockOpen(false)
     }
   })
+
 
   const updatePriceMutation = useMutation({
     mutationFn: async (data: { id: string, price: number }) => await productsApi.update(data.id, { price: data.price }),
