@@ -27,12 +27,12 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const message = error.response?.data?.message || error.message || 'An error occurred'
-    
+
     if (error.response?.status === 401) {
       useAuthStore.getState().clearAuth()
       window.location.href = '/login'
     }
-    
+
     return Promise.reject({ ...error, message })
   },
 )
@@ -77,6 +77,7 @@ export const productsApi = {
   getById: (id: string) => api.get(`/products/${id}`),
   create: (data: any) => api.post('/products', data),
   update: (id: string, data: any) => api.patch(`/products/${id}`, data),
+  delete: (id: string) => api.delete(`/products/${id}`),
   toggleStatus: (id: string) => api.patch(`/products/${id}/toggle`),
   getCategories: () => api.get('/products/categories'),
   createCategory: (name: string, description?: string) =>
