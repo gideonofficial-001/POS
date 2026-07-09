@@ -29,6 +29,8 @@ const Inventory = () => {
   
   const [isAdjustStockOpen, setIsAdjustStockOpen] = useState(false)
   const [adjustQuantity, setAdjustQuantity] = useState<number>(0)
+  const [adjustFull, setAdjustFull] = useState<number>(0)
+  const [adjustEmpty, setAdjustEmpty] = useState<number>(0)
   const [adjustReason, setAdjustReason] = useState('')
 
   const [isEditPriceOpen, setIsEditPriceOpen] = useState(false)
@@ -36,7 +38,7 @@ const Inventory = () => {
 
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
-  const [isLpgCategory, setIsLpgCategory] = useState(false) // The new checkbox state
+  const [isLpgCategory, setIsLpgCategory] = useState(false) 
 
   const [isAddProductOpen, setIsAddProductOpen] = useState(false)
   const [newProduct, setNewProduct] = useState({
@@ -62,7 +64,6 @@ const Inventory = () => {
     enabled: !!activeBranchId,
   })
 
-  // Notice we removed the role restriction so managers can see empty categories too
   const { data: categories } = useQuery({
     queryKey: ['categories'],
     queryFn: async () => (await productsApi.getCategories()).data,
@@ -73,7 +74,7 @@ const Inventory = () => {
   // ==========================================
   // MUTATIONS
   // ==========================================
-    const adjustStockMutation = useMutation({
+  const adjustStockMutation = useMutation({
     mutationFn: async (data: { id: string; quantity?: number; fullCylinders?: number; emptyCylinders?: number; reason: string }) => 
       await inventoryApi.adjustStock(data.id, {
         quantity: data.quantity,
@@ -86,7 +87,6 @@ const Inventory = () => {
       setIsAdjustStockOpen(false)
     }
   })
-
 
   const updatePriceMutation = useMutation({
     mutationFn: async (data: { id: string, price: number }) => await productsApi.update(data.id, { price: data.price }),
@@ -126,16 +126,14 @@ const Inventory = () => {
   })
 
   // ==========================================
-  // DATA TRANSFORMATION (Empty Categories included)
+  // DATA TRANSFORMATION
   // ==========================================
   const categoriesWithItems = useMemo(() => {
     if (!categories) return []
     
     return categories.map((cat: any) => {
-      // Find all inventory items that belong to this category
       let items = inventory?.filter((inv: any) => inv.product?.categoryId === cat.id) || []
       
-      // Apply search filter
       if (search) {
         const term = search.toLowerCase()
         items = items.filter((item: any) => 
@@ -148,9 +146,9 @@ const Inventory = () => {
   }, [categories, inventory, search])
 
 
-  // ==========================================
-  // VIEW 1: Branch Selection (Admin/GM Only)
-  // ==========================================
+  // Helper variable for the modal
+  const isSelectedLpg = selectedItem?.product?.category?.name.toUpperCase().includes('LPG');
+
   if (!activeBranchId && user?.role !== UserRole.BRANCH_MANAGER) {
     return (
       <div className="space-y-6">
@@ -188,9 +186,6 @@ const Inventory = () => {
     )
   }
 
-  // ==========================================
-  // VIEW 2: Specific Branch Inventory
-  // ==========================================
   return (
     <div className="space-y-6 pb-10">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -246,7 +241,6 @@ const Inventory = () => {
           {categoriesWithItems.map((category: any) => {
             const isLpgConfig = category.name.toUpperCase().includes('LPG');
             
-            // Pagination Logic
             const currentPage = pageMap[category.id] || 1;
             const itemsPerPage = 10;
             const totalPages = Math.ceil(category.items.length / itemsPerPage);
@@ -254,8 +248,6 @@ const Inventory = () => {
 
             return (
               <div key={category.id} className="flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
-                
-                {/* PROMINENT CATEGORY HEADER */}
                 <div className="bg-slate-100/50 p-4 border-b flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <h2 className="text-xl font-bold tracking-tight text-primary">
@@ -282,7 +274,6 @@ const Inventory = () => {
                   )}
                 </div>
                 
-                {/* CATEGORY TABLE */}
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -290,12 +281,10 @@ const Inventory = () => {
                         <TableHead className="w-[35%]">Product Name</TableHead>
                         <TableHead>Price (KES)</TableHead>
                         
-                        {/* DYNAMIC COLUMNS */}
                         {isLpgConfig ? (
                           <>
                             <TableHead className="text-blue-600 font-bold">REFILLS (Full)</TableHead>
                             <TableHead className="text-amber-600 font-bold">CYLINDERS (Empty)</TableHead>
-                            <TableHead>Total Shells</TableHead>
                           </>
                         ) : (
                           <TableHead>Quantity</TableHead>
@@ -310,7 +299,7 @@ const Inventory = () => {
                     <TableBody>
                       {paginatedItems.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={isLpgConfig ? 7 : 5} className="text-center h-24 text-muted-foreground">
+                          <TableCell colSpan={isLpgConfig ? 6 : 5} className="text-center h-24 text-muted-foreground">
                             No products available in this category.
                           </TableCell>
                         </TableRow>
@@ -332,17 +321,13 @@ const Inventory = () => {
                                 {Number(item.product?.price).toLocaleString()}
                               </TableCell>
                               
-                              {/* DYNAMIC DATA CELLS */}
                               {isLpgConfig ? (
                                 <>
                                   <TableCell className="text-lg font-bold text-blue-600">
                                     {item.fullCylinders || 0}
                                   </TableCell>
-                                  <TableCell className="text-lg font-bold text-amber-600">
+                                  <TableCell className={`text-lg font-bold ${item.emptyCylinders < 0 ? 'text-destructive bg-destructive/10 px-2 py-1 rounded' : 'text-amber-600'}`}>
                                     {item.emptyCylinders || 0}
-                                  </TableCell>
-                                  <TableCell className="text-lg font-bold">
-                                    {item.quantity}
                                   </TableCell>
                                 </>
                               ) : (
@@ -381,7 +366,12 @@ const Inventory = () => {
                                       size="icon" 
                                       className="h-8 w-8 hover:bg-blue-50"
                                       onClick={() => {
-                                        setSelectedItem(item); setAdjustQuantity(item.quantity); setAdjustReason('Physical stock recount'); setIsAdjustStockOpen(true);
+                                        setSelectedItem(item); 
+                                        setAdjustQuantity(item.quantity); 
+                                        setAdjustFull(item.fullCylinders || 0);
+                                        setAdjustEmpty(item.emptyCylinders || 0);
+                                        setAdjustReason('Physical stock recount'); 
+                                        setIsAdjustStockOpen(true);
                                       }}
                                     >
                                       <Settings2 className="w-4 h-4 text-blue-600" />
@@ -407,7 +397,6 @@ const Inventory = () => {
                   </Table>
                 </div>
 
-                {/* PAGINATION FOOTER */}
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between px-4 py-3 bg-muted/20 border-t">
                     <span className="text-sm text-muted-foreground">
@@ -469,7 +458,6 @@ const Inventory = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddCategoryOpen(false)}>Cancel</Button>
             <Button onClick={() => {
-              // Smart append: if they checked the box but didn't write LPG, we append it for them.
               const finalName = (isLpgCategory && !newCategoryName.toUpperCase().includes('LPG')) 
                 ? `${newCategoryName} LPG` 
                 : newCategoryName;
@@ -486,18 +474,41 @@ const Inventory = () => {
         <DialogContent>
           <DialogHeader><DialogTitle>Adjust Stock: {selectedItem?.product?.name}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">New Total Quantity</label>
-              <Input type="number" value={adjustQuantity} onChange={(e) => setAdjustQuantity(Number(e.target.value))} />
-            </div>
-            <div className="space-y-2">
+            
+            {isSelectedLpg ? (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-blue-600">Full Cylinders (Refills)</label>
+                  <Input type="number" value={adjustFull} onChange={(e) => setAdjustFull(Number(e.target.value))} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-amber-600">Empty Cylinders</label>
+                  <Input type="number" value={adjustEmpty} onChange={(e) => setAdjustEmpty(Number(e.target.value))} />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">New Quantity</label>
+                <Input type="number" value={adjustQuantity} onChange={(e) => setAdjustQuantity(Number(e.target.value))} />
+              </div>
+            )}
+            
+            <div className="space-y-2 pt-2">
               <label className="text-sm font-medium">Reason for Adjustment</label>
               <Input value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} placeholder="e.g. Physical recount..." />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAdjustStockOpen(false)}>Cancel</Button>
-            <Button onClick={() => adjustStockMutation.mutate({ id: selectedItem.id, quantity: adjustQuantity, reason: adjustReason })}>
+            <Button 
+              onClick={() => adjustStockMutation.mutate({ 
+                id: selectedItem.id, 
+                quantity: isSelectedLpg ? (adjustFull + adjustEmpty) : adjustQuantity,
+                fullCylinders: isSelectedLpg ? adjustFull : undefined,
+                emptyCylinders: isSelectedLpg ? adjustEmpty : undefined, 
+                reason: adjustReason 
+              })}
+            >
               {adjustStockMutation.isPending ? 'Saving...' : 'Save Adjustment'}
             </Button>
           </DialogFooter>
