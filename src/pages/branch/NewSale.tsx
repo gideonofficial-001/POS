@@ -1,314 +1,123 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { productsApi, inventoryApi, salesApi, customersApi } from '@/api'
+import { useQuery } from '@tanstack/react-query'
+import { inventoryApi } from '@/api'
 import { useAuthStore, useCartStore } from '@/store'
-import { SaleType } from '@/types'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Search, ShoppingCart, Minus, Plus, Trash2, Package, Flame } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import { toast } from 'sonner'
-import {
-  ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Zap, Tag
-} from 'lucide-react'
 
 const NewSale = () => {
   const { user } = useAuthStore()
-  const { items, addItem, removeItem, updateQuantity, clearCart, getSubtotal, getTotal, customerName, customerPhone, setCustomerInfo, discount, setDiscount } = useCartStore()
-  const queryClient = useQueryClient()
+  const { items, addItem, removeItem, updateQuantity, getTotal, clearCart } = useCartStore()
   const [search, setSearch] = useState('')
-  const [saleType, setSaleType] = useState<SaleType>(SaleType.CASH)
-  const [activeCategory, setActiveCategory] = useState('all')
-
-  const branchId = user?.branchId || ''
-
-  const { data: products } = useQuery({
-    queryKey: ['products'],
-    queryFn: async () => {
-      const response = await productsApi.getAll({ isActive: true })
-      return response.data
-    },
-  })
+  
+  // Modal States
+  const [lpgModalOpen, setLpgModalOpen] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<any>(null)
 
   const { data: inventory } = useQuery({
-    queryKey: ['inventory', branchId],
-    queryFn: async () => {
-      if (!branchId) return []
-      const response = await inventoryApi.getAll({ branchId })
-      return response.data
-    },
-    enabled: !!branchId,
+    queryKey: ['inventory', user?.branchId],
+    queryFn: async () => (await inventoryApi.getAll({ branchId: user?.branchId })).data,
+    enabled: !!user?.branchId,
   })
 
-  const { data: customers } = useQuery({
-    queryKey: ['customers'],
-    queryFn: async () => {
-      const response = await customersApi.getAll({ isInvoiceEligible: true })
-      return response.data
-    },
-    enabled: saleType === SaleType.INVOICE,
-  })
+  const filteredInventory = inventory?.filter((inv: any) => 
+    inv.product?.name?.toLowerCase().includes(search.toLowerCase())
+  )
 
-  const createSaleMutation = useMutation({
-    mutationFn: (data: any) => salesApi.create(data),
-    onSuccess: (response) => {
-      toast.success(`Sale completed! Code: ${response.data.saleCode}`)
-      clearCart()
-      queryClient.invalidateQueries({ queryKey: ['sales'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
-      queryClient.invalidateQueries({ queryKey: ['inventory'] })
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Failed to create sale')
-    },
-  })
-
-  const getStock = (productId: string) => {
-    const inv = inventory?.find((i: any) => i.productId === productId)
-    return inv?.quantity || 0
-  }
-
-  const filteredProducts = products?.filter((product: any) => {
-    const matchesCategory = activeCategory === 'all' || product.type === activeCategory
-    const matchesSearch = !search || 
-      product.name.toLowerCase().includes(search.toLowerCase()) ||
-      product.code.toLowerCase().includes(search.toLowerCase())
-    return matchesCategory && matchesSearch
-  })
-
-  const handleCheckout = () => {
-    if (items.length === 0) {
-      toast.error('Cart is empty')
-      return
+  const handleLpgSelect = (type: 'REFILL' | 'EMPTY' | 'BOTH') => {
+    if (!selectedProduct) return;
+    
+    if (type === 'REFILL') {
+      addItem({ ...selectedProduct, name: `${selectedProduct.name} (Refill)` }, 1)
+    } else if (type === 'EMPTY') {
+      // Mocking the empty price for the UI test
+      addItem({ ...selectedProduct, id: selectedProduct.id + '-empty', name: `${selectedProduct.name} (Empty Shell)`, price: 3500 }, 1)
+    } else if (type === 'BOTH') {
+      addItem({ ...selectedProduct, name: `${selectedProduct.name} (Complete Set)`, price: Number(selectedProduct.price) + 3500 }, 1)
     }
-
-    const saleData = {
-      branchId,
-      type: saleType,
-      customerName: customerName || undefined,
-      customerPhone: customerPhone || undefined,
-      discount,
-      items: items.map(item => ({
-        productId: item.productId,
-        quantity: item.quantity,
-      })),
-    }
-
-    createSaleMutation.mutate(saleData)
+    setLpgModalOpen(false)
   }
-
-  const categories = [
-    { id: 'all', label: 'All', icon: Package },
-    { id: 'LPG_REFILL', label: 'LPG Refills', icon: Flame },
-    { id: 'LPG_CYLINDER', label: 'Cylinders', icon: Package },
-    { id: 'ELECTRONICS', label: 'Electronics', icon: Zap },
-  ]
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">New Sale</h1>
-        <p className="text-muted-foreground">Create a new sale transaction</p>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="lg:col-span-2 space-y-4">
+        <h1 className="text-2xl font-bold">New Sale (Option 1: Modal Flow)</h1>
+        <div className="relative">
+          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {filteredInventory?.map((inv: any) => {
+            const p = inv.product
+            const isLpg = p.type.includes('LPG')
+            
+            return (
+              <Card key={p.id} className="cursor-pointer hover:border-primary transition-all" onClick={() => {
+                if (isLpg) {
+                  setSelectedProduct(p)
+                  setLpgModalOpen(true)
+                } else {
+                  addItem(p, 1)
+                }
+              }}>
+                <CardContent className="p-4">
+                  <Badge variant="secondary" className="mb-2 text-xs">{isLpg ? 'LPG' : 'STANDARD'}</Badge>
+                  <h4 className="font-medium text-sm mb-1">{p.name}</h4>
+                  <p className="text-lg font-bold text-primary">{formatCurrency(p.price)}</p>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Products Section */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search products by name or code..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-
-          {/* Categories */}
-          <Tabs value={activeCategory} onValueChange={setActiveCategory}>
-            <TabsList className="grid grid-cols-4">
-              {categories.map(cat => (
-                <TabsTrigger key={cat.id} value={cat.id} className="flex items-center gap-2">
-                  <cat.icon className="w-4 h-4" />
-                  <span className="hidden sm:inline">{cat.label}</span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-
-          {/* Products Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {filteredProducts?.map((product: any) => {
-              const stock = getStock(product.id)
-              const cartItem = items.find(i => i.productId === product.id)
-              const inCart = cartItem?.quantity || 0
-
-              return (
-                <Card
-                  key={product.id}
-                  className={`cursor-pointer transition-all hover:shadow-md ${stock === 0 ? 'opacity-50' : ''}`}
-                  onClick={() => {
-                    if (stock > inCart) {
-                      addItem(product, 1)
-                      toast.success(`${product.name} added`)
-                    } else {
-                      toast.error('Insufficient stock')
-                    }
-                  }}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <Badge variant="secondary" className="text-xs">{product.type.replace('_', ' ')}</Badge>
-                      <span className={`text-xs font-medium ${stock <= 10 ? 'text-destructive' : 'text-muted-foreground'}`}>
-                        {stock} left
-                      </span>
-                    </div>
-                    <h4 className="font-medium text-sm mb-1 truncate">{product.name}</h4>
-                    <p className="text-lg font-bold text-primary">{formatCurrency(product.price)}</p>
-                    {product.cylinderSize && <p className="text-xs text-muted-foreground">{product.cylinderSize}</p>}
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
-
-          {filteredProducts?.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
-              <Package className="w-12 h-12 mx-auto mb-4 opacity-30" />
-              <p>No products found</p>
+      {/* Cart (Simplified for test) */}
+      <Card className="sticky top-4 h-fit">
+        <CardHeader><CardTitle className="flex items-center gap-2"><ShoppingCart className="w-5 h-5"/> Cart</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {items.map(item => (
+            <div key={item.productId} className="flex justify-between items-center text-sm border-b pb-2">
+              <div className="flex-1 pr-2">
+                <p className="font-medium">{item.product.name}</p>
+                <p className="text-primary">{formatCurrency(item.unitPrice)} x {item.quantity}</p>
+              </div>
+              <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeItem(item.productId)}><Trash2 className="w-4 h-4"/></Button>
             </div>
-          )}
-        </div>
+          ))}
+          <div className="text-xl font-bold pt-2">Total: {formatCurrency(getTotal())}</div>
+        </CardContent>
+        <CardFooter><Button className="w-full" onClick={clearCart}>Clear Cart</Button></CardFooter>
+      </Card>
 
-        {/* Cart Section */}
-        <div className="space-y-4">
-          <Card className="sticky top-24">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5" />
-                Cart ({items.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Sale Type */}
-              <div className="flex gap-2">
-                <Button
-                  variant={saleType === SaleType.CASH ? 'default' : 'outline'}
-                  className="flex-1"
-                  size="sm"
-                  onClick={() => setSaleType(SaleType.CASH)}
-                >
-                  Cash
-                </Button>
-                <Button
-                  variant={saleType === SaleType.INVOICE ? 'default' : 'outline'}
-                  className="flex-1"
-                  size="sm"
-                  onClick={() => setSaleType(SaleType.INVOICE)}
-                >
-                  Invoice
-                </Button>
-              </div>
-
-              {/* Cart Items */}
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {items.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-4">Cart is empty</p>
-                ) : (
-                  items.map((item) => (
-                    <div key={item.productId} className="flex items-center gap-2 p-2 bg-muted rounded-lg">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{item.product.name}</p>
-                        <p className="text-xs text-muted-foreground">{formatCurrency(item.unitPrice)}</p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.productId, item.quantity - 1)}>
-                          <Minus className="w-3 h-3" />
-                        </Button>
-                        <span className="w-6 text-center text-sm">{item.quantity}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => {
-                            const stock = getStock(item.productId)
-                            if (item.quantity < stock) {
-                              updateQuantity(item.productId, item.quantity + 1)
-                            } else {
-                              toast.error('Max stock reached')
-                            }
-                          }}
-                        >
-                          <Plus className="w-3 h-3" />
-                        </Button>
-                      </div>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItem(item.productId)}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <Separator />
-
-              {/* Customer Info */}
-              <div className="space-y-2">
-                <Input placeholder="Customer name (optional)" value={customerName} onChange={e => setCustomerInfo(e.target.value, customerPhone)} />
-                <Input placeholder="Customer phone (optional)" value={customerPhone} onChange={e => setCustomerInfo(customerName, e.target.value)} />
-              </div>
-
-              {/* Discount */}
-              <div className="flex items-center gap-2">
-                <Tag className="w-4 h-4 text-muted-foreground" />
-                <Input
-                  type="number"
-                  placeholder="Discount (KES)"
-                  value={discount || ''}
-                  onChange={e => setDiscount(Number(e.target.value))}
-                  className="flex-1"
-                />
-              </div>
-
-              <Separator />
-
-              {/* Totals */}
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span>{formatCurrency(getSubtotal())}</span>
-                </div>
-                {discount > 0 && (
-                  <div className="flex justify-between text-destructive">
-                    <span>Discount</span>
-                    <span>-{formatCurrency(discount)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-lg font-bold">
-                  <span>Total</span>
-                  <span>{formatCurrency(getTotal())}</span>
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button
-                className="w-full"
-                size="lg"
-                disabled={items.length === 0 || createSaleMutation.isPending}
-                onClick={handleCheckout}
-              >
-                {createSaleMutation.isPending ? 'Processing...' : 'Complete Sale'}
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-      </div>
+      {/* The Option 1 Modal */}
+      <Dialog open={lpgModalOpen} onOpenChange={setLpgModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Item: {selectedProduct?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-4">
+            <Button variant="outline" className="h-16 justify-start text-left px-4" onClick={() => handleLpgSelect('REFILL')}>
+              <Flame className="w-5 h-5 mr-3 text-blue-500" />
+              <div><p className="font-bold">Gas Refill Only</p><p className="text-xs text-muted-foreground">Exchange empty for full ({formatCurrency(selectedProduct?.price)})</p></div>
+            </Button>
+            <Button variant="outline" className="h-16 justify-start text-left px-4" onClick={() => handleLpgSelect('EMPTY')}>
+              <Package className="w-5 h-5 mr-3 text-amber-600" />
+              <div><p className="font-bold">Empty Cylinder Only</p><p className="text-xs text-muted-foreground">Selling an empty shell (KES 3,500)</p></div>
+            </Button>
+            <Button className="h-16 justify-start text-left px-4 bg-primary text-primary-foreground" onClick={() => handleLpgSelect('BOTH')}>
+              <Flame className="w-5 h-5 mr-3" />
+              <div><p className="font-bold">Complete Set</p><p className="text-xs opacity-90">Gas + New Cylinder (KES {Number(selectedProduct?.price) + 3500})</p></div>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-
 export default NewSale
