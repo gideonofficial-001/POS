@@ -104,7 +104,7 @@ function App() {
 
         {/* Admin & Manager Routes */}
         <Route path="/inventory" element={
-          <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}>
+          <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER, UserRole.BRANCH_MANAGER]}>
             <Inventory />
           </ProtectedRoute>
         } />
