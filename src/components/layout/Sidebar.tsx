@@ -52,9 +52,11 @@ const Sidebar = () => {
     }
 
     // Branch Manager Navigation
+        // Branch Manager Navigation
     if (user.role === UserRole.BRANCH_MANAGER) {
       items.push(
         { path: '/branch/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+        { path: '/inventory', icon: PackageSearch, label: 'Inventory' }, // Added clickable inventory link
         { path: '/branch/new-sale', icon: ShoppingCart, label: 'New Sale' },
         { path: '/branch/invoices', icon: FileText, label: 'Invoices' },
         { path: '/branch/sales-history', icon: History, label: 'Sales History' },
@@ -65,6 +67,7 @@ const Sidebar = () => {
         { path: '/settings', icon: Settings, label: 'Settings' },
       )
     }
+
 
     return items
   }
