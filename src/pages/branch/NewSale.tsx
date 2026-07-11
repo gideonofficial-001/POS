@@ -15,18 +15,21 @@ import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag } from '
 
 const NewSale = () => {
   const { user } = useAuthStore()
-  const { items, addItem, removeItem, updateQuantity, clearCart, getSubtotal, getTotal, customerName, customerPhone, setCustomerInfo, discount, setDiscount } = useCartStore()
+  const { 
+    items, addItem, removeItem, updateQuantity, clearCart, 
+    getSubtotal, getTotal, customerName, customerPhone, 
+    setCustomerInfo, discount, setDiscount 
+  } = useCartStore()
+  
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [saleType, setSaleType] = useState<SaleType>(SaleType.CASH)
 
-  // Modal States for LPG Option 1
   const [lpgModalOpen, setLpgModalOpen] = useState(false)
   const [selectedInvItem, setSelectedInvItem] = useState<any>(null)
 
   const branchId = user?.branchId || ''
 
-  // Fetch Inventory
   const { data: inventory } = useQuery({
     queryKey: ['inventory', branchId],
     queryFn: async () => {
@@ -37,7 +40,6 @@ const NewSale = () => {
     enabled: !!branchId,
   })
 
-  // Fetch Customers for Invoices
   const { data: customers } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
@@ -47,13 +49,12 @@ const NewSale = () => {
     enabled: saleType === SaleType.INVOICE,
   })
 
-  // Checkout Mutation
   const createSaleMutation = useMutation({
     mutationFn: (data: any) => salesApi.create(data),
     onSuccess: (response) => {
       toast.success(`Sale completed! Code: ${response.data.saleCode}`)
       clearCart()
-      setSearch('') // Clear search on success
+      setSearch('') 
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
@@ -63,7 +64,6 @@ const NewSale = () => {
     },
   })
 
-  // The Clean Search Architecture: Only show products if typing
   const filteredInventory = search.trim() === '' 
     ? [] 
     : inventory?.filter((inv: any) => {
@@ -87,7 +87,6 @@ const NewSale = () => {
       customerPhone: customerPhone || undefined, 
       discount,
       items: items.map(item => ({ 
-        // If we attached a custom ID for empties/sets, strip it back to the real DB ID before saving
         productId: item.productId.split('-')[0], 
         quantity: item.quantity 
       })),
@@ -96,7 +95,6 @@ const NewSale = () => {
     createSaleMutation.mutate(saleData)
   }
 
-  // LPG Option 1 Modal Handler
   const handleLpgSelect = (type: 'REFILL' | 'EMPTY' | 'BOTH') => {
     if (!selectedInvItem) return;
     
@@ -111,7 +109,6 @@ const NewSale = () => {
       }
     } else if (type === 'EMPTY') {
       if (selectedInvItem.emptyCylinders > 0) {
-        // Mocking the KES 3500 price for UI testing
         addItem({ ...p, id: p.id + '-empty', name: `${p.name} (Empty Shell)`, price: 3500 }, 1)
         toast.success(`Added ${p.name} Empty Shell`)
       } else {
@@ -127,7 +124,7 @@ const NewSale = () => {
     }
     
     setLpgModalOpen(false)
-    setSearch('') // Auto-clear search after adding item
+    setSearch('')
   }
 
   return (
@@ -151,7 +148,6 @@ const NewSale = () => {
             />
           </div>
 
-          {/* Clean State: If search is empty */}
           {search.trim() === '' ? (
             <div className="flex flex-col items-center justify-center py-20 px-4 text-center border-2 border-dashed rounded-xl bg-muted/10">
               <div className="bg-primary/10 p-4 rounded-full mb-4">
@@ -167,8 +163,6 @@ const NewSale = () => {
               {filteredInventory?.map((inv: any) => {
                 const product = inv.product;
                 const isLpg = product.type === 'LPG_REFILL' || product.type === 'LPG_CYLINDER';
-                
-                // Smart Stock Hint
                 const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity;
                 const isOutOfStock = availableStock === 0;
 
@@ -183,7 +177,7 @@ const NewSale = () => {
                       } else {
                         if (!isOutOfStock) {
                           addItem(product, 1)
-                          setSearch('') // Auto clear on add
+                          setSearch('')
                         } else {
                           toast.error('Out of stock!')
                         }
@@ -204,11 +198,10 @@ const NewSale = () => {
                 )
               })}
 
-              {/* No Results State */}
               {filteredInventory?.length === 0 && (
                 <div className="col-span-full text-center py-12 text-muted-foreground border rounded-lg bg-muted/20">
                   <Package className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                  <p>No products found matching "{search}"</p>
+                  <p>No products found matching &quot;{search}&quot;</p>
                 </div>
               )}
             </div>
@@ -302,7 +295,7 @@ const NewSale = () => {
         </div>
       </div>
 
-      {/* The Option 1 LPG Modal */}
+      {/* The LPG Selection Modal */}
       <Dialog open={lpgModalOpen} onOpenChange={setLpgModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -358,82 +351,4 @@ const NewSale = () => {
   )
 }
 
-export default NewSale
-          <Input placeholder="Search products..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {filteredInventory?.map((inv: any) => {
-            const p = inv.product
-            const isLpg = p.type?.includes('LPG')
-            
-            // If it is LPG, render TWO distinct cards side by side
-            if (isLpg) {
-              return (
-                <Fragment key={p.id}>
-                  {/* Refill Card */}
-                  <Card className="cursor-pointer border-blue-200 hover:border-blue-500 bg-blue-50/30 transition-all" onClick={() => addItem({ ...p, name: `${p.name} (Refill)` }, 1)}>
-                    <CardContent className="p-4 flex flex-col h-full justify-between">
-                      <div>
-                        <Badge variant="outline" className="mb-2 text-xs bg-blue-100 text-blue-700 border-none">
-                          <Flame className="w-3 h-3 mr-1"/> REFILL
-                        </Badge>
-                        <h4 className="font-medium text-sm mb-1 line-clamp-2">{p.name}</h4>
-                      </div>
-                      <p className="text-lg font-bold text-blue-700">{formatCurrency(p.price)}</p>
-                    </CardContent>
-                  </Card>
-                  
-                  {/* Empty Shell Card */}
-                  <Card className="cursor-pointer border-amber-200 hover:border-amber-500 bg-amber-50/30 transition-all" onClick={() => addItem({ ...p, id: p.id + '-empty', name: `${p.name} (Empty Shell)`, price: 3500 }, 1)}>
-                    <CardContent className="p-4 flex flex-col h-full justify-between">
-                      <div>
-                        <Badge variant="outline" className="mb-2 text-xs bg-amber-100 text-amber-700 border-none">
-                          <Package className="w-3 h-3 mr-1"/> SHELL ONLY
-                        </Badge>
-                        <h4 className="font-medium text-sm mb-1 line-clamp-2">{p.name}</h4>
-                      </div>
-                      <p className="text-lg font-bold text-amber-700">KES 3,500</p>
-                    </CardContent>
-                  </Card>
-                </Fragment>
-              )
-            }
-
-            // Standard Product Card (Accessories/Electronics)
-            return (
-              <Card key={p.id} className="cursor-pointer hover:border-primary transition-all" onClick={() => addItem(p, 1)}>
-                <CardContent className="p-4 flex flex-col h-full justify-between">
-                  <div>
-                    <Badge variant="secondary" className="mb-2 text-xs">STANDARD</Badge>
-                    <h4 className="font-medium text-sm mb-1 line-clamp-2">{p.name}</h4>
-                  </div>
-                  <p className="text-lg font-bold text-primary">{formatCurrency(p.price)}</p>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Cart (Simplified for test) */}
-      <Card className="sticky top-4 h-fit">
-        <CardHeader><CardTitle className="flex items-center gap-2"><ShoppingCart className="w-5 h-5"/> Cart</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {items.map(item => (
-            <div key={item.productId} className="flex justify-between items-center text-sm border-b pb-2">
-              <div className="flex-1 pr-2">
-                <p className="font-medium">{item.product.name}</p>
-                <p className="text-primary">{formatCurrency(item.unitPrice)} x {item.quantity}</p>
-              </div>
-              <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeItem(item.productId)}><Trash2 className="w-4 h-4"/></Button>
-            </div>
-          ))}
-          <div className="text-xl font-bold pt-2 border-t mt-2">Total: {formatCurrency(getTotal())}</div>
-        </CardContent>
-        <CardFooter><Button className="w-full" onClick={clearCart}>Clear Cart</Button></CardFooter>
-      </Card>
-    </div>
-  )
-}
 export default NewSale
