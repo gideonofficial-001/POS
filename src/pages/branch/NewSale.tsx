@@ -13,6 +13,12 @@ import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
 import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag } from 'lucide-react'
 
+// Cart item ids use this separator to tag which LPG variant was selected,
+// e.g. "‹productId›~~COMPLETE_SET". "~~" is used (not "-") because real
+// product ids are UUIDs and already contain hyphens — splitting on "-"
+// truncates the id itself and breaks checkout for every product, not just LPG.
+const VARIANT_SEPARATOR = '~~'
+
 const NewSale = () => {
   const { user } = useAuthStore()
   const { 
@@ -20,7 +26,7 @@ const NewSale = () => {
     getSubtotal, getTotal, customerName, customerPhone, 
     setCustomerInfo, discount, setDiscount 
   } = useCartStore()
-  
+
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [saleType, setSaleType] = useState<SaleType>(SaleType.CASH)
@@ -86,43 +92,52 @@ const NewSale = () => {
       customerName: customerName || undefined, 
       customerPhone: customerPhone || undefined, 
       discount,
-      items: items.map(item => ({ 
-        productId: item.productId.split('-')[0], 
-        quantity: item.quantity 
-      })),
+      items: items.map(item => {
+        const [productId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
+        return {
+          productId,
+          quantity: item.quantity,
+          ...(lpgVariant ? { lpgVariant } : {}),
+        }
+      }),
     }
 
     createSaleMutation.mutate(saleData)
   }
 
-  const handleLpgSelect = (type: 'REFILL' | 'EMPTY' | 'BOTH') => {
+  const handleLpgSelect = (type: 'REFILL' | 'EMPTY_SHELL' | 'COMPLETE_SET') => {
     if (!selectedInvItem) return;
-    
+
     const p = selectedInvItem.product;
+    const emptyPrice = p.emptyPrice != null ? Number(p.emptyPrice) : null;
 
     if (type === 'REFILL') {
       if (selectedInvItem.fullCylinders > 0) {
-        addItem({ ...p, id: p.id + '-refill', name: `${p.name} (Refill)` }, 1)
+        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}REFILL`, name: `${p.name} (Refill)` }, 1)
         toast.success(`Added ${p.name} Refill`)
       } else {
         toast.error('No full cylinders in stock!')
       }
-    } else if (type === 'EMPTY') {
-      if (selectedInvItem.emptyCylinders > 0) {
-        addItem({ ...p, id: p.id + '-empty', name: `${p.name} (Empty Shell)`, price: 3500 }, 1)
+    } else if (type === 'EMPTY_SHELL') {
+      if (emptyPrice == null) {
+        toast.error('Empty shell price is not set for this product')
+      } else if (selectedInvItem.emptyCylinders > 0) {
+        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}EMPTY_SHELL`, name: `${p.name} (Empty Shell)`, price: emptyPrice }, 1)
         toast.success(`Added ${p.name} Empty Shell`)
       } else {
         toast.error('No empty shells in stock!')
       }
-    } else if (type === 'BOTH') {
-      if (selectedInvItem.fullCylinders > 0) {
-        addItem({ ...p, id: p.id + '-complete', name: `${p.name} (Complete Set)`, price: Number(p.price) + 3500 }, 1)
+    } else if (type === 'COMPLETE_SET') {
+      if (emptyPrice == null) {
+        toast.error('Empty shell price is not set for this product')
+      } else if (selectedInvItem.fullCylinders > 0) {
+        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}COMPLETE_SET`, name: `${p.name} (Complete Set)`, price: Number(p.price) + emptyPrice }, 1)
         toast.success(`Added ${p.name} Complete Set`)
       } else {
-         toast.error('No full cylinders in stock to make a complete set!')
+        toast.error('No full cylinders in stock to make a complete set!')
       }
     }
-    
+
     setLpgModalOpen(false)
     setSearch('')
   }
@@ -302,11 +317,12 @@ const NewSale = () => {
             <DialogTitle>Select Sale Type: {selectedInvItem?.product?.name}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-4">
-            
+
             <Button 
               variant="outline" 
               className={`h-16 justify-start text-left px-4 ${selectedInvItem?.fullCylinders === 0 ? 'opacity-50' : 'hover:border-blue-400'}`} 
               onClick={() => handleLpgSelect('REFILL')}
+              disabled={selectedInvItem?.fullCylinders === 0}
             >
               <Flame className="w-5 h-5 mr-3 text-blue-500" />
               <div className="flex-1">
@@ -317,11 +333,12 @@ const NewSale = () => {
                 <p className="text-xs text-muted-foreground">Customer returns empty shell ({formatCurrency(selectedInvItem?.product?.price)})</p>
               </div>
             </Button>
-            
+
             <Button 
               variant="outline" 
-              className={`h-16 justify-start text-left px-4 ${selectedInvItem?.emptyCylinders === 0 ? 'opacity-50' : 'hover:border-amber-400'}`} 
-              onClick={() => handleLpgSelect('EMPTY')}
+              className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders === 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`} 
+              onClick={() => handleLpgSelect('EMPTY_SHELL')}
+              disabled={selectedInvItem?.emptyCylinders === 0 || selectedInvItem?.product?.emptyPrice == null}
             >
               <Package className="w-5 h-5 mr-3 text-amber-600" />
               <div className="flex-1">
@@ -329,18 +346,27 @@ const NewSale = () => {
                   <p className="font-bold">Empty Cylinder</p>
                   <span className="text-xs font-medium text-amber-600">{selectedInvItem?.emptyCylinders} left</span>
                 </div>
-                <p className="text-xs text-muted-foreground">Selling shell asset (KES 3,500)</p>
+                <p className="text-xs text-muted-foreground">
+                  Selling shell asset ({selectedInvItem?.product?.emptyPrice != null
+                    ? formatCurrency(selectedInvItem.product.emptyPrice)
+                    : 'price not set'})
+                </p>
               </div>
             </Button>
-            
+
             <Button 
-              className={`h-16 justify-start text-left px-4 ${selectedInvItem?.fullCylinders === 0 ? 'opacity-50' : ''}`}
-              onClick={() => handleLpgSelect('BOTH')}
+              className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : ''}`}
+              onClick={() => handleLpgSelect('COMPLETE_SET')}
+              disabled={selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null}
             >
               <Flame className="w-5 h-5 mr-3" />
               <div className="flex-1">
                 <p className="font-bold">Complete Set (Gas + Shell)</p>
-                <p className="text-xs opacity-90">Customer takes new cylinder (KES {Number(selectedInvItem?.product?.price) + 3500})</p>
+                <p className="text-xs opacity-90">
+                  Customer takes new cylinder ({selectedInvItem?.product?.emptyPrice != null
+                    ? formatCurrency(Number(selectedInvItem.product.price) + Number(selectedInvItem.product.emptyPrice))
+                    : 'price not set'})
+                </p>
               </div>
             </Button>
 
