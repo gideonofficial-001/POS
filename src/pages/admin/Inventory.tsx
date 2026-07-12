@@ -30,11 +30,11 @@ const Inventory = () => {
   const [isAdjustStockOpen, setIsAdjustStockOpen] = useState(false)
   const [adjustQuantity, setAdjustQuantity] = useState<number>(0)
   const [adjustFull, setAdjustFull] = useState<number>(0)
-  const [adjustEmpty, setAdjustEmpty] = useState<number>(0)
   const [adjustReason, setAdjustReason] = useState('')
 
   const [isEditPriceOpen, setIsEditPriceOpen] = useState(false)
   const [editPrice, setEditPrice] = useState<number>(0)
+  const [editEmptyPrice, setEditEmptyPrice] = useState<number>(0)
 
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -42,7 +42,7 @@ const Inventory = () => {
 
   const [isAddProductOpen, setIsAddProductOpen] = useState(false)
   const [newProduct, setNewProduct] = useState({
-    name: '', code: '', type: 'ACCESSORIES', categoryId: '', price: 0, minStockLevel: 10
+    name: '', code: '', type: 'ACCESSORIES', categoryId: '', price: 0, emptyPrice: 0, minStockLevel: 10
   })
 
   // ==========================================
@@ -75,11 +75,10 @@ const Inventory = () => {
   // MUTATIONS
   // ==========================================
   const adjustStockMutation = useMutation({
-    mutationFn: async (data: { id: string; quantity?: number; fullCylinders?: number; emptyCylinders?: number; reason: string }) => 
+    mutationFn: async (data: { id: string; quantity?: number; fullCylinders?: number; reason: string }) => 
       await inventoryApi.adjustStock(data.id, {
         quantity: data.quantity,
         fullCylinders: data.fullCylinders,
-        emptyCylinders: data.emptyCylinders,
         reason: data.reason
       }),
     onSuccess: () => {
@@ -89,7 +88,8 @@ const Inventory = () => {
   })
 
   const updatePriceMutation = useMutation({
-    mutationFn: async (data: { id: string, price: number }) => await productsApi.update(data.id, { price: data.price }),
+    mutationFn: async (data: { id: string, price: number, emptyPrice?: number }) => 
+      await productsApi.update(data.id, { price: data.price, emptyPrice: data.emptyPrice }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsEditPriceOpen(false)
@@ -121,7 +121,7 @@ const Inventory = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsAddProductOpen(false)
-      setNewProduct({ name: '', code: '', type: 'ACCESSORIES', categoryId: '', price: 0, minStockLevel: 10 })
+      setNewProduct({ name: '', code: '', type: 'ACCESSORIES', categoryId: '', price: 0, emptyPrice: 0, minStockLevel: 10 })
     }
   })
 
@@ -146,7 +146,6 @@ const Inventory = () => {
   }, [categories, inventory, search])
 
 
-  // Helper variable for the modal
   const isSelectedLpg = selectedItem?.product?.category?.name.toUpperCase().includes('LPG');
 
   if (!activeBranchId && user?.role !== UserRole.BRANCH_MANAGER) {
@@ -319,6 +318,11 @@ const Inventory = () => {
 
                               <TableCell className="text-muted-foreground font-medium">
                                 {Number(item.product?.price).toLocaleString()}
+                                {isLpgConfig && item.product?.emptyPrice != null && (
+                                  <span className="block text-xs text-amber-600 mt-0.5">
+                                    Empty: {Number(item.product.emptyPrice).toLocaleString()}
+                                  </span>
+                                )}
                               </TableCell>
                               
                               {isLpgConfig ? (
@@ -356,7 +360,10 @@ const Inventory = () => {
                                       size="icon" 
                                       className="h-8 w-8 hover:bg-green-50"
                                       onClick={() => {
-                                        setSelectedItem(item); setEditPrice(Number(item.product.price)); setIsEditPriceOpen(true);
+                                        setSelectedItem(item); 
+                                        setEditPrice(Number(item.product.price)); 
+                                        setEditEmptyPrice(Number(item.product.emptyPrice || 0));
+                                        setIsEditPriceOpen(true);
                                       }}
                                     >
                                       <DollarSign className="w-4 h-4 text-green-600" />
@@ -369,7 +376,6 @@ const Inventory = () => {
                                         setSelectedItem(item); 
                                         setAdjustQuantity(item.quantity); 
                                         setAdjustFull(item.fullCylinders || 0);
-                                        setAdjustEmpty(item.emptyCylinders || 0);
                                         setAdjustReason('Physical stock recount'); 
                                         setIsAdjustStockOpen(true);
                                       }}
@@ -432,7 +438,7 @@ const Inventory = () => {
           MODALS
           ============================================== */}
       
-      {/* 1. Add Category Dialog with the Checkbox */}
+      {/* 1. Add Category Dialog */}
       <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Add New Category</DialogTitle></DialogHeader>
@@ -482,8 +488,8 @@ const Inventory = () => {
                   <Input type="number" value={adjustFull} onChange={(e) => setAdjustFull(Number(e.target.value))} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-amber-600">Empty Cylinders</label>
-                  <Input type="number" value={adjustEmpty} onChange={(e) => setAdjustEmpty(Number(e.target.value))} />
+                  <label className="text-sm font-medium">Total Shells (Full + Empty)</label>
+                  <Input type="number" value={adjustQuantity} onChange={(e) => setAdjustQuantity(Number(e.target.value))} />
                 </div>
               </div>
             ) : (
@@ -503,9 +509,8 @@ const Inventory = () => {
             <Button 
               onClick={() => adjustStockMutation.mutate({ 
                 id: selectedItem.id, 
-                quantity: isSelectedLpg ? (adjustFull + adjustEmpty) : adjustQuantity,
+                quantity: adjustQuantity,
                 fullCylinders: isSelectedLpg ? adjustFull : undefined,
-                emptyCylinders: isSelectedLpg ? adjustEmpty : undefined, 
                 reason: adjustReason 
               })}
             >
@@ -521,13 +526,27 @@ const Inventory = () => {
           <DialogHeader><DialogTitle>Edit Price: {selectedItem?.product?.name}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Selling Price (KES)</label>
+              <label className="text-sm font-medium">
+                {isSelectedLpg ? 'Refill Price (KES)' : 'Selling Price (KES)'}
+              </label>
               <Input type="number" value={editPrice} onChange={(e) => setEditPrice(Number(e.target.value))} />
             </div>
+            {isSelectedLpg && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-amber-600">Empty Shell Price (KES)</label>
+                <Input type="number" value={editEmptyPrice} onChange={(e) => setEditEmptyPrice(Number(e.target.value))} />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditPriceOpen(false)}>Cancel</Button>
-            <Button onClick={() => updatePriceMutation.mutate({ id: selectedItem.product.id, price: editPrice })}>
+            <Button 
+              onClick={() => updatePriceMutation.mutate({ 
+                id: selectedItem.product.id, 
+                price: editPrice,
+                emptyPrice: isSelectedLpg ? editEmptyPrice : undefined
+              })}
+            >
               {updatePriceMutation.isPending ? 'Updating...' : 'Update Price'}
             </Button>
           </DialogFooter>
@@ -571,13 +590,27 @@ const Inventory = () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Price (KES)</label>
+              <label className="text-sm font-medium">
+                {(newProduct.type === 'LPG_REFILL' || newProduct.type === 'LPG_CYLINDER') ? 'Refill Price (KES)' : 'Price (KES)'}
+              </label>
               <Input type="number" value={newProduct.price} onChange={(e) => setNewProduct({...newProduct, price: Number(e.target.value)})} />
             </div>
+            
+            {/* Show empty price input ONLY if the product type is LPG */}
+            {(newProduct.type === 'LPG_REFILL' || newProduct.type === 'LPG_CYLINDER') && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-amber-600">Empty Shell Price (KES)</label>
+                <Input type="number" value={newProduct.emptyPrice} onChange={(e) => setNewProduct({...newProduct, emptyPrice: Number(e.target.value)})} />
+              </div>
+            )}
+            
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddProductOpen(false)}>Cancel</Button>
-            <Button onClick={() => createProductMutation.mutate(newProduct)}>
+            <Button onClick={() => createProductMutation.mutate({
+              ...newProduct,
+              emptyPrice: (newProduct.type === 'LPG_REFILL' || newProduct.type === 'LPG_CYLINDER') ? newProduct.emptyPrice : undefined
+            })}>
               {createProductMutation.isPending ? 'Saving...' : 'Save Product'}
             </Button>
           </DialogFooter>
