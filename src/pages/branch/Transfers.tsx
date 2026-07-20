@@ -343,7 +343,13 @@ const Transfers = () => {
                     <p className="text-sm text-muted-foreground">
                       From: {transfer.fromBranch?.name} To: {transfer.toBranch?.name}
                     </p>
-                    <p className="text-sm mt-1">{transfer.items?.length} product(s)</p>
+                    <p className="text-sm mt-1 text-foreground">
+                      {transfer.items?.length
+                        ? transfer.items
+                            .map((item: any) => `${item.product?.name} x${item.quantity}`)
+                            .join(', ')
+                        : 'No items'}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-1">{formatDate(transfer.createdAt)}</p>
                     {transfer.status === 'REJECTED' && transfer.rejectionReason && (
                       <p className="text-xs text-destructive mt-1">Reason: {transfer.rejectionReason}</p>
