@@ -151,6 +151,7 @@ export const transfersApi = {
   create: (data: any) => api.post('/transfers', data),
   approve: (id: string) => api.patch(`/transfers/${id}/approve`),
   reject: (id: string, rejectionReason: string) => api.patch(`/transfers/${id}/reject`, { rejectionReason }),
+  cancel: (id: string) => api.patch(`/transfers/${id}/cancel`),
 }
 
 // Devices API
