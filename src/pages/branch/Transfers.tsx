@@ -47,7 +47,50 @@ const ErrorBanner = ({ message, onRetry }: { message: string; onRetry?: () => vo
   </div>
 )
 
-const STATUS_OPTIONS = ['ALL', 'PENDING', 'APPROVED', 'REJECTED', 'COMPLETED', 'CANCELLED']
+const STATUS_OPTIONS = ['ALL', 'PENDING', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED', 'COMPLETED', 'CANCELLED']
+
+type DraftItem = { productId: string; variant: 'STANDARD' | 'REFILL' | 'EMPTY_SHELL'; quantity: number }
+
+function variantLabel(variant: string): string | null {
+  if (variant === 'REFILL') return 'Refill'
+  if (variant === 'EMPTY_SHELL') return 'Empty Shell'
+  return null
+}
+
+function getAvailableStock(inv: any, variant: string): number {
+  if (variant === 'REFILL') return inv.fullCylinders ?? 0
+  if (variant === 'EMPTY_SHELL') return inv.emptyCylinders ?? (inv.quantity - (inv.fullCylinders ?? 0))
+  return inv.quantity
+}
+
+const getStatusBadge = (status: string) => {
+  switch (status) {
+    case 'APPROVED':
+    case 'COMPLETED':
+      return <Badge variant="success">{status === 'COMPLETED' ? 'Completed' : 'Approved'}</Badge>
+    case 'PARTIALLY_APPROVED':
+      return <Badge variant="warning">Partially Approved</Badge>
+    case 'PENDING':
+      return <Badge variant="warning">Pending</Badge>
+    case 'REJECTED':
+      return <Badge variant="destructive">Rejected</Badge>
+    case 'CANCELLED':
+      return <Badge variant="secondary">Cancelled</Badge>
+    default:
+      return <Badge>{status}</Badge>
+  }
+}
+
+const getItemStatusBadge = (status: string) => {
+  switch (status) {
+    case 'APPROVED':
+      return <Badge variant="success" className="text-[10px]">Approved</Badge>
+    case 'REJECTED':
+      return <Badge variant="destructive" className="text-[10px]">Rejected</Badge>
+    default:
+      return <Badge variant="warning" className="text-[10px]">Pending</Badge>
+  }
+}
 
 const Transfers = () => {
   const { user } = useAuthStore()
@@ -62,10 +105,10 @@ const Transfers = () => {
   const [toBranchId, setToBranchId] = useState('')
   const [notes, setNotes] = useState('')
   const [productSearch, setProductSearch] = useState('')
-  const [transferItems, setTransferItems] = useState<{ productId: string; quantity: number }[]>([])
+  const [transferItems, setTransferItems] = useState<DraftItem[]>([])
 
   const [viewTransfer, setViewTransfer] = useState<any>(null)
-  const [rejectTarget, setRejectTarget] = useState<any>(null)
+  const [rejectTarget, setRejectTarget] = useState<{ transferId: string; itemId: string; label: string } | null>(null)
   const [rejectReason, setRejectReason] = useState('')
 
   const statusParam = statusFilter === 'ALL' ? undefined : statusFilter
@@ -101,7 +144,7 @@ const Transfers = () => {
   })
 
   const incomingPendingCount = useMemo(
-    () => (incoming ?? []).filter((t: any) => t.status === 'PENDING').length,
+    () => (incoming ?? []).filter((t: any) => t.items?.some((i: any) => i.status === 'PENDING')).length,
     [incoming],
   )
 
@@ -158,32 +201,33 @@ const Transfers = () => {
     },
   })
 
-  const approveMutation = useMutation({
-    mutationFn: (id: string) => transfersApi.approve(id),
+  const approveItemMutation = useMutation({
+    mutationFn: ({ transferId, itemId }: { transferId: string; itemId: string }) =>
+      transfersApi.approveItem(transferId, itemId),
     onSuccess: () => {
       invalidateTransfers()
       setActionError(null)
-      toast.success('Transfer approved')
+      toast.success('Item approved')
     },
     onError: (error: any) => {
-      const message = getErrorMessage(error, 'Failed to approve transfer')
+      const message = getErrorMessage(error, 'Failed to approve item')
       setActionError(message)
       toast.error(message)
     },
   })
 
-  const rejectMutation = useMutation({
-    mutationFn: ({ id, rejectionReason }: { id: string; rejectionReason: string }) =>
-      transfersApi.reject(id, rejectionReason),
+  const rejectItemMutation = useMutation({
+    mutationFn: ({ transferId, itemId, rejectionReason }: { transferId: string; itemId: string; rejectionReason: string }) =>
+      transfersApi.rejectItem(transferId, itemId, rejectionReason),
     onSuccess: () => {
       invalidateTransfers()
       setActionError(null)
       setRejectTarget(null)
       setRejectReason('')
-      toast.success('Transfer rejected')
+      toast.success('Item rejected')
     },
     onError: (error: any) => {
-      const message = getErrorMessage(error, 'Failed to reject transfer')
+      const message = getErrorMessage(error, 'Failed to reject item')
       setActionError(message)
       toast.error(message)
     },
@@ -203,22 +247,6 @@ const Transfers = () => {
     },
   })
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'APPROVED':
-      case 'COMPLETED':
-        return <Badge variant="success">{status}</Badge>
-      case 'PENDING':
-        return <Badge variant="warning">Pending</Badge>
-      case 'REJECTED':
-        return <Badge variant="destructive">Rejected</Badge>
-      case 'CANCELLED':
-        return <Badge variant="secondary">Cancelled</Badge>
-      default:
-        return <Badge>{status}</Badge>
-    }
-  }
-
   const filteredProducts = useMemo(() => {
     if (!inventory) return []
     if (!productSearch.trim()) return inventory
@@ -226,11 +254,24 @@ const Transfers = () => {
     return inventory.filter((inv: any) => inv.product?.name?.toLowerCase().includes(q))
   }, [inventory, productSearch])
 
+  const setItemQty = (productId: string, variant: DraftItem['variant'], qty: number) => {
+    setTransferItems((prev) => {
+      const matches = (i: DraftItem) => i.productId === productId && i.variant === variant
+      if (!qty || qty <= 0) return prev.filter((i) => !matches(i))
+      const existing = prev.find(matches)
+      if (existing) return prev.map((i) => (matches(i) ? { ...i, quantity: qty } : i))
+      return [...prev, { productId, variant, quantity: qty }]
+    })
+  }
+
+  const getItemQty = (productId: string, variant: DraftItem['variant']) =>
+    transferItems.find((i) => i.productId === productId && i.variant === variant)?.quantity ?? ''
+
   const invalidItems = useMemo(
     () =>
       transferItems.filter((i) => {
         const inv = inventory?.find((x: any) => x.productId === i.productId)
-        return inv && i.quantity > inv.quantity
+        return inv && i.quantity > getAvailableStock(inv, i.variant)
       }),
     [transferItems, inventory],
   )
@@ -250,11 +291,13 @@ const Transfers = () => {
     return activeList.filter((t: any) => t.transferCode?.toLowerCase().includes(q))
   }, [activeList, search])
 
-  const canActOn = (transfer: any) =>
-    transfer.status === 'PENDING' && direction === 'incoming' && transfer.toBranchId === user?.branchId
+  const canActOnItem = (transfer: any, item: any) =>
+    direction === 'incoming' && transfer.toBranchId === user?.branchId && item.status === 'PENDING'
 
   const canCancel = (transfer: any) =>
-    transfer.status === 'PENDING' && direction === 'outgoing' && transfer.initiatedBy === user?.id
+    direction === 'outgoing' &&
+    transfer.initiatedBy === user?.id &&
+    transfer.items?.every((i: any) => i.status === 'PENDING')
 
   return (
     <div className="space-y-6">
@@ -269,9 +312,7 @@ const Transfers = () => {
         </Button>
       </div>
 
-      {actionError && (
-        <ErrorBanner message={actionError} />
-      )}
+      {actionError && <ErrorBanner message={actionError} />}
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <Tabs value={direction} onValueChange={(v) => setDirection(v as 'outgoing' | 'incoming')}>
@@ -297,10 +338,10 @@ const Transfers = () => {
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               {STATUS_OPTIONS.map((s) => (
-                <SelectItem key={s} value={s}>{s === 'ALL' ? 'All statuses' : s}</SelectItem>
+                <SelectItem key={s} value={s}>{s === 'ALL' ? 'All statuses' : s.replace('_', ' ')}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -334,63 +375,86 @@ const Transfers = () => {
           displayedTransfers.map((transfer: any) => (
             <Card key={transfer.id} className="hover:shadow-md transition-shadow">
               <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start justify-between gap-4 mb-3">
                   <div className="flex-1 cursor-pointer" onClick={() => setViewTransfer(transfer)}>
-                    <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <div className="flex items-center gap-3 mb-1 flex-wrap">
                       <h3 className="font-bold">{transfer.transferCode}</h3>
                       {getStatusBadge(transfer.status)}
                     </div>
                     <p className="text-sm text-muted-foreground">
                       From: {transfer.fromBranch?.name} To: {transfer.toBranch?.name}
                     </p>
-                    <p className="text-sm mt-1 text-foreground">
-                      {transfer.items?.length
-                        ? transfer.items
-                            .map((item: any) => `${item.product?.name} x${item.quantity}`)
-                            .join(', ')
-                        : 'No items'}
-                    </p>
                     <p className="text-xs text-muted-foreground mt-1">{formatDate(transfer.createdAt)}</p>
-                    {transfer.status === 'REJECTED' && transfer.rejectionReason && (
-                      <p className="text-xs text-destructive mt-1">Reason: {transfer.rejectionReason}</p>
-                    )}
                   </div>
-                  <div className="flex flex-col items-end gap-2 shrink-0">
-                    <ArrowLeftRight className="w-6 h-6 text-muted-foreground" />
-                    {canActOn(transfer) && (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => approveMutation.mutate(transfer.id)}
-                          disabled={approveMutation.isPending}
-                        >
-                          <Check className="w-3.5 h-3.5 mr-1" />
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => { setRejectTarget(transfer); setRejectReason('') }}
-                          disabled={rejectMutation.isPending}
-                        >
-                          <X className="w-3.5 h-3.5 mr-1" />
-                          Reject
-                        </Button>
-                      </div>
-                    )}
-                    {canCancel(transfer) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => cancelMutation.mutate(transfer.id)}
-                        disabled={cancelMutation.isPending}
-                      >
-                        <X className="w-3.5 h-3.5 mr-1" />
-                        {cancelMutation.isPending ? 'Cancelling...' : 'Cancel Request'}
-                      </Button>
-                    )}
-                  </div>
+                  <ArrowLeftRight className="w-6 h-6 text-muted-foreground shrink-0" />
                 </div>
+
+                {/* Per-item breakdown with individual approve/reject */}
+                <div className="space-y-2 border rounded-lg divide-y">
+                  {transfer.items?.map((item: any) => (
+                    <div key={item.id} className="p-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {item.product?.name}
+                            {variantLabel(item.variant) && (
+                              <span className="text-muted-foreground font-normal"> — {variantLabel(item.variant)}</span>
+                            )}
+                            {' '}x{item.quantity}
+                          </p>
+                          {item.status === 'REJECTED' && item.rejectionReason && (
+                            <p className="text-xs text-destructive mt-0.5">Reason: {item.rejectionReason}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {getItemStatusBadge(item.status)}
+                          {canActOnItem(transfer, item) && (
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                className="h-7 px-2"
+                                onClick={() => approveItemMutation.mutate({ transferId: transfer.id, itemId: item.id })}
+                                disabled={approveItemMutation.isPending}
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2"
+                                onClick={() => {
+                                  setRejectTarget({
+                                    transferId: transfer.id,
+                                    itemId: item.id,
+                                    label: `${item.product?.name}${variantLabel(item.variant) ? ` — ${variantLabel(item.variant)}` : ''} x${item.quantity}`,
+                                  })
+                                  setRejectReason('')
+                                }}
+                                disabled={rejectItemMutation.isPending}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {canCancel(transfer) && (
+                  <div className="flex justify-end mt-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => cancelMutation.mutate(transfer.id)}
+                      disabled={cancelMutation.isPending}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      {cancelMutation.isPending ? 'Cancelling...' : 'Cancel Request'}
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))
@@ -455,13 +519,58 @@ const Transfers = () => {
                   No stock available at your branch to transfer.
                 </div>
               ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto border rounded-lg p-2">
+                <div className="space-y-2 max-h-72 overflow-y-auto border rounded-lg p-2">
                   {filteredProducts.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-3">No products match "{productSearch}"</p>
                   ) : (
                     filteredProducts.map((inv: any) => {
-                      const current = transferItems.find((i) => i.productId === inv.productId)
-                      const isInvalid = current && current.quantity > inv.quantity
+                      if (inv.product?.isCylinderTracked) {
+                        const fullAvailable = inv.fullCylinders ?? 0
+                        const emptyAvailable = inv.emptyCylinders ?? (inv.quantity - fullAvailable)
+                        const refillQty = getItemQty(inv.productId, 'REFILL')
+                        const shellQty = getItemQty(inv.productId, 'EMPTY_SHELL')
+                        const refillInvalid = refillQty !== '' && Number(refillQty) > fullAvailable
+                        const shellInvalid = shellQty !== '' && Number(shellQty) > emptyAvailable
+                        return (
+                          <div key={inv.id} className="p-2 hover:bg-muted rounded">
+                            <p className="text-sm font-medium">{inv.product?.name}</p>
+                            <p className="text-xs text-muted-foreground mb-1.5">
+                              Full: {fullAvailable} · Empty: {emptyAvailable}
+                            </p>
+                            <div className="flex gap-3">
+                              <div className="flex-1">
+                                <Label className="text-[10px] text-muted-foreground">Refill (full)</Label>
+                                <Input
+                                  type="number"
+                                  className="h-8"
+                                  min={0}
+                                  max={fullAvailable}
+                                  value={refillQty}
+                                  placeholder="Qty"
+                                  onChange={(e) => setItemQty(inv.productId, 'REFILL', Number(e.target.value))}
+                                />
+                                {refillInvalid && <p className="text-[10px] text-destructive mt-0.5">Only {fullAvailable} full</p>}
+                              </div>
+                              <div className="flex-1">
+                                <Label className="text-[10px] text-muted-foreground">Empty Shell</Label>
+                                <Input
+                                  type="number"
+                                  className="h-8"
+                                  min={0}
+                                  max={emptyAvailable}
+                                  value={shellQty}
+                                  placeholder="Qty"
+                                  onChange={(e) => setItemQty(inv.productId, 'EMPTY_SHELL', Number(e.target.value))}
+                                />
+                                {shellInvalid && <p className="text-[10px] text-destructive mt-0.5">Only {emptyAvailable} empty</p>}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+
+                      const standardQty = getItemQty(inv.productId, 'STANDARD')
+                      const isInvalid = standardQty !== '' && Number(standardQty) > inv.quantity
                       return (
                         <div key={inv.id} className="p-2 hover:bg-muted rounded">
                           <div className="flex items-center justify-between">
@@ -474,17 +583,9 @@ const Transfers = () => {
                               className="w-20 h-8"
                               min={0}
                               max={inv.quantity}
-                              value={current?.quantity ?? ''}
+                              value={standardQty}
                               placeholder="Qty"
-                              onChange={(e) => {
-                                const qty = Number(e.target.value)
-                                setTransferItems((prev) => {
-                                  const existing = prev.find((i) => i.productId === inv.productId)
-                                  if (!qty || qty <= 0) return prev.filter((i) => i.productId !== inv.productId)
-                                  if (existing) return prev.map((i) => (i.productId === inv.productId ? { ...i, quantity: qty } : i))
-                                  return [...prev, { productId: inv.productId, quantity: qty }]
-                                })
-                              }}
+                              onChange={(e) => setItemQty(inv.productId, 'STANDARD', Number(e.target.value))}
                             />
                           </div>
                           {isInvalid && (
@@ -534,13 +635,16 @@ const Transfers = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Reject Dialog */}
+      {/* Reject Dialog (per item) */}
       <Dialog open={!!rejectTarget} onOpenChange={(open) => !open && setRejectTarget(null)}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Reject Transfer {rejectTarget?.transferCode}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Reject Item</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            {rejectMutation.isError && (
-              <ErrorBanner message={getErrorMessage(rejectMutation.error, 'Failed to reject transfer')} />
+            {rejectTarget && (
+              <p className="text-sm text-muted-foreground">{rejectTarget.label}</p>
+            )}
+            {rejectItemMutation.isError && (
+              <ErrorBanner message={getErrorMessage(rejectItemMutation.error, 'Failed to reject item')} />
             )}
             <div className="space-y-2">
               <Label>Reason for rejection *</Label>
@@ -548,7 +652,7 @@ const Transfers = () => {
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 rows={3}
-                placeholder="Explain why this transfer is being rejected..."
+                placeholder="Explain why this item is being rejected..."
                 className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               />
             </div>
@@ -556,10 +660,17 @@ const Transfers = () => {
               <Button variant="outline" onClick={() => setRejectTarget(null)}>Cancel</Button>
               <Button
                 variant="destructive"
-                disabled={!rejectReason.trim() || rejectMutation.isPending}
-                onClick={() => rejectMutation.mutate({ id: rejectTarget.id, rejectionReason: rejectReason.trim() })}
+                disabled={!rejectReason.trim() || rejectItemMutation.isPending || !rejectTarget}
+                onClick={() =>
+                  rejectTarget &&
+                  rejectItemMutation.mutate({
+                    transferId: rejectTarget.transferId,
+                    itemId: rejectTarget.itemId,
+                    rejectionReason: rejectReason.trim(),
+                  })
+                }
               >
-                {rejectMutation.isPending ? 'Rejecting...' : 'Reject Transfer'}
+                {rejectItemMutation.isPending ? 'Rejecting...' : 'Reject Item'}
               </Button>
             </DialogFooter>
           </div>
@@ -594,9 +705,7 @@ const Transfers = () => {
                 )}
                 {viewTransfer.approvedBy && (
                   <div>
-                    <p className="text-muted-foreground text-xs">
-                      {viewTransfer.status === 'REJECTED' ? 'Rejected by' : 'Approved by'}
-                    </p>
+                    <p className="text-muted-foreground text-xs">Last actioned by</p>
                     <p className="font-medium">{viewTransfer.approvedBy.firstName} {viewTransfer.approvedBy.lastName}</p>
                   </div>
                 )}
@@ -609,19 +718,26 @@ const Transfers = () => {
                 </div>
               )}
 
-              {viewTransfer.rejectionReason && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  {viewTransfer.rejectionReason}
-                </div>
-              )}
-
               <div>
                 <p className="text-muted-foreground text-xs mb-2">Items</p>
                 <div className="space-y-2 border rounded-lg divide-y">
                   {viewTransfer.items?.map((item: any) => (
-                    <div key={item.id} className="flex items-center justify-between p-2 text-sm">
-                      <span>{item.product?.name}</span>
-                      <span className="font-medium">{item.quantity}</span>
+                    <div key={item.id} className="p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span>
+                          {item.product?.name}
+                          {variantLabel(item.variant) && (
+                            <span className="text-muted-foreground"> — {variantLabel(item.variant)}</span>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">x{item.quantity}</span>
+                          {getItemStatusBadge(item.status)}
+                        </div>
+                      </div>
+                      {item.status === 'REJECTED' && item.rejectionReason && (
+                        <p className="text-xs text-destructive mt-1">Reason: {item.rejectionReason}</p>
+                      )}
                     </div>
                   ))}
                 </div>
