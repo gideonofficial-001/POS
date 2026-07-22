@@ -39,10 +39,10 @@ api.interceptors.response.use(
 
 // Auth API
 export const authApi = {
-  login: (email: string, password: string, deviceFingerprint: string) =>
-    api.post('/auth/login', { email, password, deviceFingerprint }),
-  requestDeviceCode: (email: string, deviceFingerprint: string) =>
-    api.post('/auth/device/request', { email, deviceFingerprint }),
+  login: (email: string, password: string, deviceFingerprint: string, location?: { latitude?: number; longitude?: number }) =>
+    api.post('/auth/login', { email, password, deviceFingerprint, ...location }),
+  requestDeviceCode: (email: string, deviceFingerprint: string, location?: { latitude?: number; longitude?: number }) =>
+    api.post('/auth/device/request', { email, deviceFingerprint, ...location }),
   verifyDeviceCode: (requestId: string, authorizationCode: string) =>
     api.post('/auth/device/verify', { requestId, authorizationCode }),
   logout: () => api.post('/auth/logout'),
@@ -151,6 +151,9 @@ export const transfersApi = {
   create: (data: any) => api.post('/transfers', data),
   approve: (id: string) => api.patch(`/transfers/${id}/approve`),
   reject: (id: string, rejectionReason: string) => api.patch(`/transfers/${id}/reject`, { rejectionReason }),
+  approveItem: (id: string, itemId: string) => api.patch(`/transfers/${id}/items/${itemId}/approve`),
+  rejectItem: (id: string, itemId: string, rejectionReason: string) =>
+    api.patch(`/transfers/${id}/items/${itemId}/reject`, { rejectionReason }),
   cancel: (id: string) => api.patch(`/transfers/${id}/cancel`),
 }
 
