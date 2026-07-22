@@ -61,9 +61,22 @@ export enum ExpenseStatus {
 export enum TransferStatus {
   PENDING = 'PENDING',
   APPROVED = 'APPROVED',
+  PARTIALLY_APPROVED = 'PARTIALLY_APPROVED',
   REJECTED = 'REJECTED',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
+}
+
+export enum TransferItemStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
+export enum TransferItemVariant {
+  STANDARD = 'STANDARD',
+  REFILL = 'REFILL',
+  EMPTY_SHELL = 'EMPTY_SHELL',
 }
 
 export enum DeviceStatus {
@@ -138,6 +151,7 @@ export interface Product {
   costPrice?: number
   cylinderSize?: string
   brand?: string
+  isCylinderTracked?: boolean
   minStockLevel: number
   isActive: boolean
 }
@@ -283,6 +297,9 @@ export interface TransferItem {
   productId: string
   product: Product
   quantity: number
+  variant: TransferItemVariant
+  status: TransferItemStatus
+  rejectionReason?: string
 }
 
 export interface Device {
