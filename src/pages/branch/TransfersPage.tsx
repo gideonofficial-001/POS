@@ -54,7 +54,7 @@ const itemStatusConfig = {
   REJECTED: { color: 'bg-red-100 text-red-700', label: 'Rejected' },
 };
 
-export function TransfersPage() {
+export default function TransfersPage() {
   const { user } = useAuthStore();
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
