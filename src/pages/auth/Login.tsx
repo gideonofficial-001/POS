@@ -5,7 +5,6 @@ import { useAuthStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Card,
   CardContent,
@@ -15,7 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { toast } from 'sonner'
-import { MapPin, Loader2, ShieldAlert } from 'lucide-react'
+import { MapPin, Loader2, ShieldAlert, AlertCircle } from 'lucide-react'
 import { generateDeviceFingerprint } from '@/lib/utils'
 
 interface LocationData {
@@ -37,7 +36,6 @@ const Login = () => {
   const [locationWarning, setLocationWarning] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Request browser GPS — resolves with coords or null (never rejects)
   const requestLocation = (): Promise<LocationData | null> =>
     new Promise((resolve) => {
       if (!navigator.geolocation) {
@@ -57,7 +55,7 @@ const Login = () => {
         (err) => {
           console.warn('Location denied:', err.message)
           setLocationStatus('denied')
-          resolve(null) // backend falls back to IP geolocation
+          resolve(null)
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
       )
@@ -92,7 +90,6 @@ const Login = () => {
 
       const data = response.data
 
-      // Existing device-auth flow — unchanged
       if (data.requiresDeviceAuth) {
         localStorage.setItem('pendingAuthEmail', email)
         localStorage.setItem('deviceRequestId', data.deviceRequestId)
@@ -156,19 +153,20 @@ const Login = () => {
       </CardHeader>
 
       <CardContent>
+        {/* Location warning banner */}
         {locationWarning && (
-          <Alert className="mb-4 border-amber-200 bg-amber-50">
-            <ShieldAlert className="h-4 w-4 text-amber-600" />
-            <AlertDescription className="text-amber-800">
-              {locationWarning}
-            </AlertDescription>
-          </Alert>
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <span>{locationWarning}</span>
+          </div>
         )}
 
+        {/* Error banner */}
         {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -201,13 +199,13 @@ const Login = () => {
           {/* Location status indicator */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <MapPin
-              className={`w-4 h-4 shrink-0 ${
+              className={`h-4 w-4 shrink-0 ${
                 locationStatus === 'granted'
                   ? 'text-green-500'
                   : locationStatus === 'denied'
                   ? 'text-amber-500'
                   : locationStatus === 'requesting'
-                  ? 'text-blue-500 animate-pulse'
+                  ? 'animate-pulse text-blue-500'
                   : 'text-gray-400'
               }`}
             />
