@@ -1,29 +1,98 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
 import { authApi } from '@/api'
 import { useAuthStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2, Lock, Mail } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { toast } from 'sonner'
+import { MapPin, Loader2, ShieldAlert } from 'lucide-react'
 import { generateDeviceFingerprint } from '@/lib/utils'
+
+interface LocationData {
+  latitude: number
+  longitude: number
+  accuracy: number
+}
+
+type LocationStatus = 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable'
 
 const Login = () => {
   const navigate = useNavigate()
   const { setAuth } = useAuthStore()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle')
+  const [locationWarning, setLocationWarning] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const loginMutation = useMutation({
-    mutationFn: async (credentials: { email: string; password: string; deviceFingerprint: string }) => {
-      const response = await authApi.login(credentials.email, credentials.password, credentials.deviceFingerprint)
-      return response.data
-    },
-    onSuccess: (data) => {
+  // Request browser GPS — resolves with coords or null (never rejects)
+  const requestLocation = (): Promise<LocationData | null> =>
+    new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        setLocationStatus('unavailable')
+        return resolve(null)
+      }
+      setLocationStatus('requesting')
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLocationStatus('granted')
+          resolve({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+          })
+        },
+        (err) => {
+          console.warn('Location denied:', err.message)
+          setLocationStatus('denied')
+          resolve(null) // backend falls back to IP geolocation
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      )
+    })
+
+  const getDeviceType = (): string => {
+    const ua = navigator.userAgent
+    if (/Mobi|Android/i.test(ua)) return 'mobile'
+    if (/Tablet|iPad/i.test(ua)) return 'tablet'
+    return 'desktop'
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(null)
+    setLocationWarning(null)
+
+    try {
+      const location = await requestLocation()
+      const deviceFingerprint = generateDeviceFingerprint()
+
+      const response = await authApi.login(email, password, deviceFingerprint, {
+        ...(location && {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          accuracy: location.accuracy,
+        }),
+        deviceType: getDeviceType(),
+        userAgent: navigator.userAgent,
+      })
+
+      const data = response.data
+
+      // Existing device-auth flow — unchanged
       if (data.requiresDeviceAuth) {
         localStorage.setItem('pendingAuthEmail', email)
         localStorage.setItem('deviceRequestId', data.deviceRequestId)
@@ -31,10 +100,24 @@ const Login = () => {
         return
       }
 
-      setAuth(data.user, data.access_token)
-      toast.success('Login successful!')
+      const { user, access_token, locationWarning: warning } = data
 
-      switch (data.user.role) {
+      if (warning) {
+        setLocationWarning(warning)
+        toast.warning('Login Warning', { description: warning })
+      }
+
+      setAuth(user, access_token)
+
+      if (locationStatus === 'granted') {
+        toast.success('Login successful', {
+          description: 'Location verified for security.',
+        })
+      } else {
+        toast.success('Login successful!')
+      }
+
+      switch (user.role) {
         case 'SUPER_ADMIN':
           navigate('/admin/dashboard')
           break
@@ -47,25 +130,15 @@ const Login = () => {
         default:
           navigate('/')
       }
-    },
-    onError: (error: any) => {
-      const msg = error.response?.data?.message || error.message || 'Login failed'
-      setError(msg)
-      toast.error(msg)
-    },
-  })
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-
-    if (!email || !password) {
-      setError('Please enter both email and password')
-      return
+    } catch (err: any) {
+      const msg =
+        err.response?.data?.message || err.message || 'Login failed. Please try again.'
+      const display = Array.isArray(msg) ? msg.join(' ') : msg
+      setError(display)
+      toast.error('Login Failed', { description: display })
+    } finally {
+      setIsLoading(false)
     }
-
-    const deviceFingerprint = generateDeviceFingerprint()
-    loginMutation.mutate({ email, password, deviceFingerprint })
   }
 
   return (
@@ -81,48 +154,77 @@ const Login = () => {
           Sign in to Njugush Enterprises POS
         </CardDescription>
       </CardHeader>
+
       <CardContent>
-        {error && (
-          <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm border border-destructive/20">
-            {error}
-          </div>
+        {locationWarning && (
+          <Alert className="mb-4 border-amber-200 bg-amber-50">
+            <ShieldAlert className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800">
+              {locationWarning}
+            </AlertDescription>
+          </Alert>
         )}
+
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="email"
-                type="email"
-                placeholder="Enter your email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="pl-10"
-                disabled={loginMutation.isPending}
-              />
-            </div>
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              disabled={isLoading}
+            />
           </div>
+
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="pl-10"
-                disabled={loginMutation.isPending}
-              />
-            </div>
+            <Input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              disabled={isLoading}
+            />
           </div>
-          <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
-            {loginMutation.isPending ? (
+
+          {/* Location status indicator */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <MapPin
+              className={`w-4 h-4 shrink-0 ${
+                locationStatus === 'granted'
+                  ? 'text-green-500'
+                  : locationStatus === 'denied'
+                  ? 'text-amber-500'
+                  : locationStatus === 'requesting'
+                  ? 'text-blue-500 animate-pulse'
+                  : 'text-gray-400'
+              }`}
+            />
+            <span>
+              {locationStatus === 'idle' && 'Location will be requested for security'}
+              {locationStatus === 'requesting' && 'Requesting location access…'}
+              {locationStatus === 'granted' && 'Location access granted'}
+              {locationStatus === 'denied' && 'Location denied — using IP check instead'}
+              {locationStatus === 'unavailable' && 'Geolocation not supported'}
+            </span>
+          </div>
+
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Signing in...
+                Signing in…
               </>
             ) : (
               'Sign In'
@@ -130,9 +232,10 @@ const Login = () => {
           </Button>
         </form>
       </CardContent>
+
       <CardFooter>
         <p className="text-xs text-center text-muted-foreground w-full">
-          Njugush Enterprises POS System v1.0
+          Njugush Enterprises POS System v1.0 · Location is used for security only
         </p>
       </CardFooter>
     </Card>
