@@ -29,7 +29,7 @@ import Invoices from '@/pages/branch/Invoices'
 import ReturnsPage from '@/pages/branch/Returns'
 import SalesHistory from '@/pages/branch/SalesHistory'
 import Expenses from '@/pages/branch/Expenses'
-import Transfers from '@/pages/branch/Transfers'
+import TransfersPage from '@/pages/branch/TransfersPage'
 
 // Shared Pages
 import Notifications from '@/pages/shared/Notifications'
@@ -45,7 +45,6 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode;
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role as UserRole)) {
-    // Redirect based on role
     if (user.role === UserRole.SUPER_ADMIN) return <Navigate to="/admin/dashboard" replace />
     if (user.role === UserRole.OVERALL_MANAGER) return <Navigate to="/manager/dashboard" replace />
     if (user.role === UserRole.BRANCH_MANAGER) return <Navigate to="/branch/dashboard" replace />
@@ -157,7 +156,7 @@ function App() {
         } />
         <Route path="/branch/transfers" element={
           <ProtectedRoute allowedRoles={[UserRole.BRANCH_MANAGER]}>
-            <Transfers />
+            <TransfersPage />
           </ProtectedRoute>
         } />
 
