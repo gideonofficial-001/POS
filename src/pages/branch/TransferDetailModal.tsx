@@ -33,7 +33,7 @@ interface Transfer {
   status: 'PENDING' | 'PARTIAL' | 'COMPLETED' | 'CANCELLED';
   fromBranch: { id: string; name: string };
   toBranch: { id: string; name: string };
-  requestedBy: { id: string; name: string };
+  requestedBy: { id: string; firstName: string; lastName: string };
   items: TransferItem[];
   notes?: string;
   createdAt: string;
@@ -185,7 +185,7 @@ export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
               <span className="text-muted-foreground flex items-center gap-1">
                 <User className="h-3 w-3" /> Requested By
               </span>
-              <p className="font-medium">{transfer.requestedBy.name}</p>
+              <p className="font-medium">{transfer.requestedBy.firstName} {transfer.requestedBy.lastName}</p>
             </div>
             <div className="space-y-1">
               <span className="text-muted-foreground flex items-center gap-1">
