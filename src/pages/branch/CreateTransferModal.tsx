@@ -20,37 +20,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Plus, Trash2, Package, Flame, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Package, AlertCircle } from 'lucide-react';
 
 interface Branch {
   id: string;
   name: string;
 }
 
-interface Product {
+// Inventory record — what the /inventory endpoint actually returns
+interface InventoryItem {
   id: string;
-  name: string;
-  isLpg: boolean;
-  hasRefill: boolean;
-  hasCylinder: boolean;
-  inventory: { quantity: number }[];
-}
-
-interface Cylinder {
-  id: string;
-  serialNumber: string;
   productId: string;
-  status: string;
+  branchId: string;
+  quantity: number;
+  fullCylinders: number | null;
+  product: {
+    id: string;
+    name: string;
+    type: string;
+    isCylinderTracked: boolean;
+  };
 }
 
 interface TransferItemForm {
-  id: string; // temp id
+  id: string;
   productId: string;
   quantity: number;
-  lpgComponent?: 'REFILL' | 'CYLINDER';
-  cylinderId?: string;
   notes?: string;
 }
 
@@ -66,35 +62,27 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // All branches except the user's own
   const { data: branches } = useQuery({
     queryKey: ['branches'],
     queryFn: async () => {
       const { data } = await api.get('/branches');
-      return data.filter((b: Branch) => b.id !== user?.branchId);
+      return (data as Branch[]).filter((b) => b.id !== user?.branchId);
     },
   });
 
-  const { data: products } = useQuery({
-    queryKey: ['products', 'with-inventory'],
+  // Inventory for the user's branch — this is the source of truth for stock
+  const { data: inventory } = useQuery({
+    queryKey: ['inventory', 'branch', user?.branchId],
     queryFn: async () => {
-      const { data } = await api.get('/products');
-      return data as Product[];
+      const { data } = await api.get(`/inventory?branchId=${user?.branchId}`);
+      return data as InventoryItem[];
     },
-  });
-
-  const { data: cylinders } = useQuery({
-    queryKey: ['cylinders', 'available'],
-    queryFn: async () => {
-      const { data } = await api.get('/inventory/cylinders?status=FULL');
-      return data as Cylinder[];
-    },
-    enabled: items.some((i) => i.lpgComponent === 'CYLINDER'),
+    enabled: !!user?.branchId,
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return api.post('/inventory/transfers', data);
-    },
+    mutationFn: async (data: any) => api.post('/inventory/transfers', data),
     onSuccess: () => {
       toast.success('Transfer created successfully');
       onSuccess();
@@ -119,11 +107,17 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
     setItems(items.map((i) => (i.id === id ? { ...i, ...updates } : i)));
   };
 
-  const getProduct = (productId: string) => products?.find((p) => p.id === productId);
+  const getInventoryItem = (productId: string): InventoryItem | undefined =>
+    inventory?.find((inv) => inv.productId === productId);
 
-  const getAvailableStock = (productId: string) => {
-    const product = getProduct(productId);
-    return product?.inventory?.[0]?.quantity || 0;
+  const getAvailableStock = (productId: string): number => {
+    const inv = getInventoryItem(productId);
+    if (!inv) return 0;
+    // For cylinder-tracked products, available = fullCylinders
+    if (inv.product.isCylinderTracked && inv.fullCylinders != null) {
+      return inv.fullCylinders;
+    }
+    return inv.quantity;
   };
 
   const validate = (): boolean => {
@@ -137,16 +131,8 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
       if (item.quantity < 1) newErrors[`item_${idx}_qty`] = 'Quantity must be at least 1';
 
       const stock = getAvailableStock(item.productId);
-      if (item.quantity > stock) {
+      if (item.productId && item.quantity > stock) {
         newErrors[`item_${idx}_qty`] = `Only ${stock} available in stock`;
-      }
-
-      const product = getProduct(item.productId);
-      if (product?.isLpg && !item.lpgComponent) {
-        newErrors[`item_${idx}_lpg`] = 'Select refill or cylinder';
-      }
-      if (item.lpgComponent === 'CYLINDER' && !item.cylinderId) {
-        newErrors[`item_${idx}_cyl`] = 'Select a cylinder';
       }
     });
 
@@ -158,13 +144,12 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
     if (!validate()) return;
 
     const payload = {
+      fromBranchId: user?.branchId,
       toBranchId,
       notes: notes || undefined,
       items: items.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
-        ...(item.lpgComponent && { lpgComponent: item.lpgComponent }),
-        ...(item.cylinderId && { cylinderId: item.cylinderId }),
         ...(item.notes && { notes: item.notes }),
       })),
     };
@@ -191,7 +176,7 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
                 <SelectValue placeholder="Select destination branch" />
               </SelectTrigger>
               <SelectContent>
-                {branches?.map((branch: Branch) => (
+                {branches?.map((branch) => (
                   <SelectItem key={branch.id} value={branch.id}>
                     {branch.name}
                   </SelectItem>
@@ -230,7 +215,7 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
             )}
 
             {items.map((item, idx) => {
-              const product = getProduct(item.productId);
+              const inv = getInventoryItem(item.productId);
               const stock = getAvailableStock(item.productId);
 
               return (
@@ -249,25 +234,27 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    {/* Product Select */}
+                    {/* Product Select — sourced from branch inventory */}
                     <div className="col-span-2 space-y-1">
                       <Label className="text-xs">Product</Label>
                       <Select
                         value={item.productId}
-                        onValueChange={(val) => {
-                          updateItem(item.id, { productId: val, lpgComponent: undefined, cylinderId: undefined });
-                        }}
+                        onValueChange={(val) => updateItem(item.id, { productId: val })}
                       >
                         <SelectTrigger className={errors[`item_${idx}_product`] ? 'border-red-500' : ''}>
                           <SelectValue placeholder="Select product" />
                         </SelectTrigger>
                         <SelectContent>
-                          {products?.map((p: Product) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name} {p.isLpg && <Flame className="inline h-3 w-3 text-orange-500 ml-1" />}
-                              {' '}({p.inventory?.[0]?.quantity || 0} in stock)
-                            </SelectItem>
-                          ))}
+                          {inventory?.map((inv) => {
+                            const available = inv.product.isCylinderTracked && inv.fullCylinders != null
+                              ? inv.fullCylinders
+                              : inv.quantity;
+                            return (
+                              <SelectItem key={inv.productId} value={inv.productId}>
+                                {inv.product.name} ({available} in stock)
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
                       {errors[`item_${idx}_product`] && (
@@ -281,11 +268,12 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
                       <Input
                         type="number"
                         min={1}
+                        max={stock || undefined}
                         value={item.quantity}
                         onChange={(e) => updateItem(item.id, { quantity: parseInt(e.target.value) || 1 })}
                         className={errors[`item_${idx}_qty`] ? 'border-red-500' : ''}
                       />
-                      {product && (
+                      {inv && (
                         <p className="text-xs text-muted-foreground">
                           Available: {stock}
                         </p>
@@ -295,74 +283,15 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
                       )}
                     </div>
 
-                    {/* LPG Component (if applicable) */}
-                    {product?.isLpg && (
-                      <div className="space-y-1">
-                        <Label className="text-xs flex items-center gap-1">
-                          <Flame className="h-3 w-3 text-orange-500" />
-                          Type
-                        </Label>
-                        <Select
-                          value={item.lpgComponent || ''}
-                          onValueChange={(val: 'REFILL' | 'CYLINDER') => {
-                            updateItem(item.id, { lpgComponent: val, cylinderId: undefined });
-                          }}
-                        >
-                          <SelectTrigger className={errors[`item_${idx}_lpg`] ? 'border-red-500' : ''}>
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {product.hasRefill && (
-                              <SelectItem value="REFILL">Refill Only</SelectItem>
-                            )}
-                            {product.hasCylinder && (
-                              <SelectItem value="CYLINDER">With Cylinder</SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
-                        {errors[`item_${idx}_lpg`] && (
-                          <p className="text-xs text-red-500">{errors[`item_${idx}_lpg`]}</p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Cylinder Select (if cylinder type) */}
-                    {item.lpgComponent === 'CYLINDER' && (
-                      <div className="col-span-2 space-y-1">
-                        <Label className="text-xs">Select Cylinder</Label>
-                        <Select
-                          value={item.cylinderId || ''}
-                          onValueChange={(val) => updateItem(item.id, { cylinderId: val })}
-                        >
-                          <SelectTrigger className={errors[`item_${idx}_cyl`] ? 'border-red-500' : ''}>
-                            <SelectValue placeholder="Select cylinder" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {cylinders
-                              ?.filter((c) => c.productId === item.productId)
-                              .map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  #{c.serialNumber}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                        {errors[`item_${idx}_cyl`] && (
-                          <p className="text-xs text-red-500">{errors[`item_${idx}_cyl`]}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Notes per item */}
-                  <div className="space-y-1">
-                    <Label className="text-xs">Notes (optional)</Label>
-                    <Textarea
-                      placeholder="Any special instructions..."
-                      className="text-sm min-h-[50px]"
-                      value={item.notes || ''}
-                      onChange={(e) => updateItem(item.id, { notes: e.target.value })}
-                    />
+                    {/* Notes per item */}
+                    <div className="space-y-1">
+                      <Label className="text-xs">Notes (optional)</Label>
+                      <Input
+                        placeholder="Any notes..."
+                        value={item.notes || ''}
+                        onChange={(e) => updateItem(item.id, { notes: e.target.value })}
+                      />
+                    </div>
                   </div>
                 </div>
               );
@@ -395,3 +324,5 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
     </Dialog>
   );
 }
+
+export default CreateTransferModal;
