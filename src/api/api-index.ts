@@ -1,0 +1,254 @@
+import axios from 'axios'
+import { useAuthStore } from '@/store'
+
+const API_URL = import.meta.env.VITE_API_URL || 'https://pos-backend-dffl.onrender.com/api'
+
+const api = axios.create({
+  baseURL: API_URL,
+  headers: { 'Content-Type': 'application/json' },
+})
+
+api.interceptors.request.use(
+  (config) => {
+    const token = useAuthStore.getState().token
+    if (token) config.headers.Authorization = `Bearer ${token}`
+    return config
+  },
+  (error) => Promise.reject(error),
+)
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const message = error.response?.data?.message || error.message || 'An error occurred'
+    if (error.response?.status === 401) {
+      useAuthStore.getState().clearAuth()
+      window.location.href = '/login'
+    }
+    return Promise.reject({ ...error, message })
+  },
+)
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+export const authApi = {
+  /**
+   * Login — accepts optional GPS coordinates and device info alongside credentials.
+   * deviceFingerprint is still required for the existing device-auth flow.
+   */
+  login: (
+    email: string,
+    password: string,
+    deviceFingerprint: string,
+    extra?: {
+      latitude?: number
+      longitude?: number
+      accuracy?: number
+      deviceType?: string
+      userAgent?: string
+    },
+  ) => api.post('/auth/login', { email, password, deviceFingerprint, ...extra }),
+
+  requestDeviceCode: (
+    email: string,
+    deviceFingerprint: string,
+    location?: { latitude?: number; longitude?: number },
+  ) => api.post('/auth/device/request', { email, deviceFingerprint, ...location }),
+
+  verifyDeviceCode: (requestId: string, authorizationCode: string) =>
+    api.post('/auth/device/verify', { requestId, authorizationCode }),
+
+  logout: () => api.post('/auth/logout'),
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+export const usersApi = {
+  getAll: () => api.get('/users'),
+  getById: (id: string) => api.get(`/users/${id}`),
+  create: (data: any) => api.post('/users', data),
+  update: (id: string, data: any) => api.patch(`/users/${id}`, data),
+  delete: (id: string, confirmationText: string) =>
+    api.delete(`/users/${id}?confirmation=${encodeURIComponent(confirmationText)}`),
+  getStats: () => api.get('/users/stats'),
+
+  // Login activity endpoints (new)
+  getLoginHistory: (userId: string, days = 30) =>
+    api.get(`/users/${userId}/login-history`, { params: { days } }),
+  getSuspiciousLogins: (days = 7) =>
+    api.get('/users/login-activity/suspicious', { params: { days } }),
+  getAllLoginActivity: (days = 7, userId?: string) =>
+    api.get('/users/login-activity/all', { params: { days, userId } }),
+}
+
+// ── Branches ──────────────────────────────────────────────────────────────────
+export const branchesApi = {
+  getAll: () => api.get('/branches'),
+  getById: (id: string) => api.get(`/branches/${id}`),
+  create: (data: any) => api.post('/branches', data),
+  update: (id: string, data: any) => api.patch(`/branches/${id}`, data),
+  toggleStatus: (id: string) => api.patch(`/branches/${id}/toggle-status`),
+  getInventory: (id: string) => api.get(`/branches/${id}/inventory`),
+  getSales: (id: string, startDate?: string, endDate?: string) =>
+    api.get(`/branches/${id}/sales`, { params: { startDate, endDate } }),
+}
+
+// ── Products ──────────────────────────────────────────────────────────────────
+export const productsApi = {
+  getAll: (params?: any) => api.get('/products', { params }),
+  getById: (id: string) => api.get(`/products/${id}`),
+  create: (data: any) => api.post('/products', data),
+  update: (id: string, data: any) => api.patch(`/products/${id}`, data),
+  delete: (id: string) => api.delete(`/products/${id}`),
+  toggleStatus: (id: string) => api.patch(`/products/${id}/toggle`),
+  getCategories: () => api.get('/products/categories'),
+  createCategory: (name: string, description?: string) =>
+    api.post('/products/categories', { name, description }),
+  deleteCategory: (id: string) => api.delete(`/products/categories/${id}`),
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+export const inventoryApi = {
+  getAll: (params?: any) => api.get('/inventory', { params }),
+  getById: (id: string) => api.get(`/inventory/${id}`),
+  restock: (id: string, quantity: number) =>
+    api.post(`/inventory/${id}/restock`, { quantity }),
+  adjustStock: (
+    id: string,
+    payload: {
+      quantity?: number
+      fullCylinders?: number
+      emptyCylinders?: number
+      reason: string
+    },
+  ) => api.post(`/inventory/${id}/adjust`, payload),
+  getLowStock: () => api.get('/inventory/low-stock'),
+  getMovements: (params?: any) => api.get('/inventory/movements', { params }),
+}
+
+// ── Customers ─────────────────────────────────────────────────────────────────
+export const customersApi = {
+  getAll: (params?: any) => api.get('/customers', { params }),
+  getById: (id: string) => api.get(`/customers/${id}`),
+  create: (data: any) => api.post('/customers', data),
+  update: (id: string, data: any) => api.patch(`/customers/${id}`, data),
+  toggleStatus: (id: string) => api.patch(`/customers/${id}/toggle`),
+  getOutstandingBalances: () => api.get('/customers/outstanding-balances'),
+}
+
+// ── Sales ─────────────────────────────────────────────────────────────────────
+export const salesApi = {
+  getAll: (params?: any) => api.get('/sales', { params }),
+  getById: (id: string) => api.get(`/sales/${id}`),
+  getByCode: (code: string) => api.get(`/sales/code/${code}`),
+  create: (data: any) => api.post('/sales', data),
+  getWeekly: (year?: number, week?: number) =>
+    api.get('/sales/weekly', { params: { year, week } }),
+}
+
+// ── Invoices ──────────────────────────────────────────────────────────────────
+export const invoicesApi = {
+  getAll: (params?: any) => api.get('/invoices', { params }),
+  getById: (id: string) => api.get(`/invoices/${id}`),
+  create: (data: any) => api.post('/invoices', data),
+  updateStatus: (id: string, status: string) =>
+    api.patch(`/invoices/${id}/status`, { status }),
+  getSummary: () => api.get('/invoices/summary'),
+  getOverdue: () => api.get('/invoices/overdue'),
+}
+
+// ── Returns ───────────────────────────────────────────────────────────────────
+export const returnsApi = {
+  getAll: (params?: any) => api.get('/returns', { params }),
+  getById: (id: string) => api.get(`/returns/${id}`),
+  create: (data: any) => api.post('/returns', data),
+  approve: (id: string) => api.patch(`/returns/${id}/approve`),
+  reject: (id: string, rejectionReason: string) =>
+    api.patch(`/returns/${id}/reject`, { rejectionReason }),
+}
+
+// ── Expenses ──────────────────────────────────────────────────────────────────
+export const expensesApi = {
+  getAll: (params?: any) => api.get('/expenses', { params }),
+  getById: (id: string) => api.get(`/expenses/${id}`),
+  create: (data: any) => api.post('/expenses', data),
+  approve: (id: string) => api.patch(`/expenses/${id}/approve`),
+  reject: (id: string, rejectionReason: string) =>
+    api.patch(`/expenses/${id}/reject`, { rejectionReason }),
+}
+
+// ── Transfers (v2 — per-item approval) ───────────────────────────────────────
+//
+// New routes are at /inventory/transfers (served by InventoryModule).
+// The old /transfers/* routes (TransfersModule) are kept as `legacy*` so
+// any existing pages that haven't been migrated continue to work.
+export const transfersApi = {
+  // v2 — used by the new TransfersPage, CreateTransferModal, TransferDetailModal
+  getAll: (params?: any) => api.get('/inventory/transfers', { params }),
+  getById: (id: string) => api.get(`/inventory/transfers/${id}`),
+  create: (data: any) => api.post('/inventory/transfers', data),
+  /**
+   * Respond to one or more items individually.
+   * Can be called multiple times — items with status !== PENDING are rejected by
+   * the backend with a clear error.
+   */
+  respond: (
+    transferId: string,
+    items: { itemId: string; status: 'ACCEPTED' | 'REJECTED'; notes?: string }[],
+  ) => api.post(`/inventory/transfers/${transferId}/respond`, { items }),
+  cancel: (id: string) => api.post(`/inventory/transfers/${id}/cancel`),
+
+  // Legacy v1 — kept for existing Transfers.tsx page
+  legacyGetAll: (params?: any) => api.get('/transfers', { params }),
+  legacyGetById: (id: string) => api.get(`/transfers/${id}`),
+  legacyCreate: (data: any) => api.post('/transfers', data),
+  legacyApprove: (id: string) => api.patch(`/transfers/${id}/approve`),
+  legacyReject: (id: string, rejectionReason: string) =>
+    api.patch(`/transfers/${id}/reject`, { rejectionReason }),
+  approveItem: (id: string, itemId: string) =>
+    api.patch(`/transfers/${id}/items/${itemId}/approve`),
+  rejectItem: (id: string, itemId: string, rejectionReason: string) =>
+    api.patch(`/transfers/${id}/items/${itemId}/reject`, { rejectionReason }),
+}
+
+// ── Devices ───────────────────────────────────────────────────────────────────
+export const devicesApi = {
+  getPending: () => api.get('/devices/pending'),
+  getAll: () => api.get('/devices'),
+  approve: (id: string) => api.post(`/devices/${id}/approve`),
+  revoke: (id: string) => api.patch(`/devices/${id}/revoke`),
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+export const notificationsApi = {
+  getAll: () => api.get('/notifications'),
+  getUnreadCount: () => api.get('/notifications/unread-count'),
+  getPendingApprovals: () => api.get('/notifications/pending-approvals'),
+  markAsRead: (id: string) => api.post(`/notifications/${id}/read`),
+  markAllAsRead: () => api.post('/notifications/read-all'),
+}
+
+// ── Audit Logs ────────────────────────────────────────────────────────────────
+export const auditLogsApi = {
+  getAll: (params?: any) => api.get('/audit-logs', { params }),
+  getStats: () => api.get('/audit-logs/stats'),
+}
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+export const reportsApi = {
+  getDashboardStats: () => api.get('/reports/dashboard'),
+  getSalesTrend: (days?: number) =>
+    api.get('/reports/sales-trend', { params: { days } }),
+  getBranchPerformance: () => api.get('/reports/branch-performance'),
+  getProductPerformance: () => api.get('/reports/product-performance'),
+  getExpenseReport: (startDate?: string, endDate?: string) =>
+    api.get('/reports/expenses', { params: { startDate, endDate } }),
+  getInventoryValuation: () => api.get('/reports/inventory-valuation'),
+}
+
+// ── Activity Feed ─────────────────────────────────────────────────────────────
+export const activityFeedApi = {
+  getAll: () => api.get('/activity-feed'),
+  getRecent: (limit?: number) =>
+    api.get('/activity-feed/recent', { params: { limit } }),
+}
+
+export default api
