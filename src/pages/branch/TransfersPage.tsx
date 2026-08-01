@@ -74,9 +74,11 @@ export default function TransfersPage() {
   const isOutgoing = (transfer: Transfer) => transfer.fromBranch.id === user?.branchId;
 
   const canRespond = (transfer: Transfer) => {
-    return isIncoming(transfer) && 
+    // Both BRANCH_MANAGER and SUPER_ADMIN can respond to incoming transfers at their branch
+    const isManager = user?.role === 'BRANCH_MANAGER' || user?.role === 'SUPER_ADMIN';
+    return isIncoming(transfer) &&
            (transfer.status === 'PENDING' || transfer.status === 'PARTIAL') &&
-           user?.role === 'BRANCH_MANAGER';
+           isManager;
   };
 
   const canCancel = (transfer: Transfer) => {
