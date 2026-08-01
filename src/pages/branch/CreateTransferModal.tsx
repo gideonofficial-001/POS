@@ -144,7 +144,6 @@ export function CreateTransferModal({ onClose, onSuccess }: Props) {
     if (!validate()) return;
 
     const payload = {
-      fromBranchId: user?.branchId,
       toBranchId,
       notes: notes || undefined,
       items: items.map((item) => ({
