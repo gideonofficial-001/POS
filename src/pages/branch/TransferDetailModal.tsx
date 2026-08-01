@@ -45,7 +45,7 @@ interface TransferItem {
   product: { id: string; name: string; isLpg: boolean; unit?: string };
   quantity: number;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
-  lpgComponent: 'REFILL' | 'CYLINDER' | null;
+  lpgComponent?: 'REFILL' | 'CYLINDER' | null;
   cylinder?: { id: string; serialNumber: string } | null;
   notes?: string;
 }
