@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { authApi } from '@/api'
+import api from '@/api'
 import { useAuthStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,17 @@ interface LocationData {
 }
 
 type LocationStatus = 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable'
+
+interface LoginPayload {
+  email: string
+  password: string
+  deviceFingerprint: string
+  latitude?: number
+  longitude?: number
+  accuracy?: number
+  deviceType?: string
+  userAgent?: string
+}
 
 const Login = () => {
   const navigate = useNavigate()
@@ -78,16 +89,21 @@ const Login = () => {
       const location = await requestLocation()
       const deviceFingerprint = generateDeviceFingerprint()
 
-      const response = await authApi.login(email, password, deviceFingerprint, {
-        ...(location && {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          accuracy: location.accuracy,
-        }),
+      const payload: LoginPayload = {
+        email,
+        password,
+        deviceFingerprint,
         deviceType: getDeviceType(),
         userAgent: navigator.userAgent,
-      })
+      }
 
+      if (location) {
+        payload.latitude = location.latitude
+        payload.longitude = location.longitude
+        payload.accuracy = location.accuracy
+      }
+
+      const response = await api.post('/auth/login', payload)
       const data = response.data
 
       if (data.requiresDeviceAuth) {
@@ -107,9 +123,7 @@ const Login = () => {
       setAuth(user, access_token)
 
       if (locationStatus === 'granted') {
-        toast.success('Login successful', {
-          description: 'Location verified for security.',
-        })
+        toast.success('Login successful', { description: 'Location verified for security.' })
       } else {
         toast.success('Login successful!')
       }
@@ -128,8 +142,7 @@ const Login = () => {
           navigate('/')
       }
     } catch (err: any) {
-      const msg =
-        err.response?.data?.message || err.message || 'Login failed. Please try again.'
+      const msg = err.response?.data?.message || err.message || 'Login failed. Please try again.'
       const display = Array.isArray(msg) ? msg.join(' ') : msg
       setError(display)
       toast.error('Login Failed', { description: display })
@@ -153,7 +166,6 @@ const Login = () => {
       </CardHeader>
 
       <CardContent>
-        {/* Location warning banner */}
         {locationWarning && (
           <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -161,7 +173,6 @@ const Login = () => {
           </div>
         )}
 
-        {/* Error banner */}
         {error && (
           <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -196,7 +207,6 @@ const Login = () => {
             />
           </div>
 
-          {/* Location status indicator */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <MapPin
               className={`h-4 w-4 shrink-0 ${
