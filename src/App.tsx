@@ -159,6 +159,11 @@ function App() {
             <TransfersPage />
           </ProtectedRoute>
         } />
+        <Route path="/admin/transfers" element={
+          <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}>
+            <TransfersPage />
+          </ProtectedRoute>
+        } />
 
         {/* Shared Routes */}
         <Route path="/notifications" element={
