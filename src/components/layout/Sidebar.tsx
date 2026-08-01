@@ -33,6 +33,7 @@ const Sidebar = () => {
         { path: '/admin/branches', icon: Building2, label: 'Branches' },
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
         { path: '/customers', icon: UsersRound, label: 'Customers' },
+        { path: '/admin/transfers', icon: ArrowLeftRight, label: 'Transfers' },
         { path: '/notifications', icon: Bell, label: 'Notifications' },
         { path: '/admin/audit-logs', icon: ClipboardList, label: 'Audit Logs' },
         { path: '/settings', icon: Settings, label: 'Settings' },
@@ -52,11 +53,10 @@ const Sidebar = () => {
     }
 
     // Branch Manager Navigation
-        // Branch Manager Navigation
     if (user.role === UserRole.BRANCH_MANAGER) {
       items.push(
         { path: '/branch/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-        { path: '/inventory', icon: PackageSearch, label: 'Inventory' }, // Added clickable inventory link
+        { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
         { path: '/branch/new-sale', icon: ShoppingCart, label: 'New Sale' },
         { path: '/branch/invoices', icon: FileText, label: 'Invoices' },
         { path: '/branch/sales-history', icon: History, label: 'Sales History' },
@@ -67,7 +67,6 @@ const Sidebar = () => {
         { path: '/settings', icon: Settings, label: 'Settings' },
       )
     }
-
 
     return items
   }
