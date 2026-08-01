@@ -42,7 +42,7 @@ interface Transfer {
 
 interface TransferItem {
   id: string;
-  product: { id: string; name: string; isLpg: boolean; unit?: string };
+  product: { id: string; name: string; isLpg?: boolean; unit?: string };
   quantity: number;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
   lpgComponent?: 'REFILL' | 'CYLINDER' | null;
