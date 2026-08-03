@@ -1,14 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { notificationsApi, devicesApi, returnsApi, transfersApi, expensesApi } from '@/api'
+import { notificationsApi, devicesApi, returnsApi, expensesApi } from '@/api'
 import { useAuthStore } from '@/store'
 import { UserRole } from '@/types'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatRelativeTime } from '@/lib/utils'
 import { toast } from 'sonner'
-import { Bell, CheckCircle, Smartphone, RotateCcw, ArrowLeftRight, Receipt, Check } from 'lucide-react'
+import { Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check } from 'lucide-react'
 import { useState } from 'react'
 
 const Notifications = () => {
@@ -53,15 +52,6 @@ const Notifications = () => {
     enabled: isAdmin || isManager,
   })
 
-  const { data: pendingTransfers } = useQuery({
-    queryKey: ['pending-transfers'],
-    queryFn: async () => {
-      const response = await transfersApi.getAll({ status: 'PENDING' })
-      return response.data
-    },
-    enabled: isAdmin || isManager,
-  })
-
   const { data: pendingExpenses } = useQuery({
     queryKey: ['pending-expenses'],
     queryFn: async () => {
@@ -80,6 +70,7 @@ const Notifications = () => {
     mutationFn: (id: string) => devicesApi.approve(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-devices'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
       toast.success('Device approved and code sent')
     },
   })
@@ -88,6 +79,7 @@ const Notifications = () => {
     mutationFn: (id: string) => returnsApi.approve(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-returns'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
       toast.success('Return approved')
     },
   })
@@ -96,15 +88,8 @@ const Notifications = () => {
     mutationFn: ({ id, reason }: { id: string; reason: string }) => returnsApi.reject(id, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-returns'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
       toast.success('Return rejected')
-    },
-  })
-
-  const approveTransferMutation = useMutation({
-    mutationFn: (id: string) => transfersApi.approve(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pending-transfers'] })
-      toast.success('Transfer approved')
     },
   })
 
@@ -112,22 +97,37 @@ const Notifications = () => {
     mutationFn: (id: string) => expensesApi.approve(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
       toast.success('Expense approved')
+    },
+  })
+
+  const rejectExpenseMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      expensesApi.reject(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pending-expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
+      toast.success('Expense rejected')
     },
   })
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'DEVICE_AUTH': return <Smartphone className="w-5 h-5" />
-      case 'RETURN_REQUEST': return <RotateCcw className="w-5 h-5" />
-      case 'TRANSFER_REQUEST': return <ArrowLeftRight className="w-5 h-5" />
+      case 'DEVICE_AUTH':      return <Smartphone className="w-5 h-5" />
+      case 'RETURN_REQUEST':   return <RotateCcw className="w-5 h-5" />
       case 'EXPENSE_SUBMITTED': return <Receipt className="w-5 h-5" />
-      default: return <Bell className="w-5 h-5" />
+      default:                 return <Bell className="w-5 h-5" />
     }
   }
 
+  const hasPending =
+    (pendingReturns?.length ?? 0) > 0 ||
+    (pendingDevices?.length ?? 0) > 0 ||
+    (pendingExpenses?.length ?? 0) > 0
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       <div>
         <h1 className="text-2xl font-bold">Notifications</h1>
         <p className="text-muted-foreground">Stay updated with system activities</p>
@@ -137,14 +137,17 @@ const Notifications = () => {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="notifications">All Notifications</TabsTrigger>
-            <TabsTrigger value="approvals">Pending Approvals ({pendingApprovals?.total || 0})</TabsTrigger>
+            <TabsTrigger value="approvals">
+              Pending Approvals ({pendingApprovals?.total || 0})
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       )}
 
+      {/* ── Notifications Tab ──────────────────────────────────────── */}
       {activeTab === 'notifications' && (
         <div className="space-y-2">
-          {notifications?.length === 0 ? (
+          {!notifications?.length ? (
             <div className="text-center py-12 text-muted-foreground">
               <Bell className="w-12 h-12 mx-auto mb-4 opacity-30" />
               <p>No notifications</p>
@@ -159,10 +162,17 @@ const Notifications = () => {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">{notif.title}</p>
                     <p className="text-sm text-muted-foreground">{notif.message}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{formatRelativeTime(notif.createdAt)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {formatRelativeTime(notif.createdAt)}
+                    </p>
                   </div>
                   {notif.status === 'UNREAD' && (
-                    <Button variant="ghost" size="icon" className="shrink-0" onClick={() => markReadMutation.mutate(notif.id)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => markReadMutation.mutate(notif.id)}
+                    >
                       <Check className="w-4 h-4" />
                     </Button>
                   )}
@@ -173,25 +183,41 @@ const Notifications = () => {
         </div>
       )}
 
+      {/* ── Approvals Tab ──────────────────────────────────────────── */}
       {activeTab === 'approvals' && (isAdmin || isManager) && (
         <div className="space-y-6">
+
           {/* Pending Returns */}
-          {pendingReturns && pendingReturns.length > 0 && (
+          {(pendingReturns?.length ?? 0) > 0 && (
             <div>
-              <h3 className="font-bold mb-3 flex items-center gap-2"><RotateCcw className="w-5 h-5" /> Pending Returns ({pendingReturns.length})</h3>
+              <h3 className="font-bold mb-3 flex items-center gap-2">
+                <RotateCcw className="w-5 h-5" /> Pending Returns ({pendingReturns!.length})
+              </h3>
               <div className="space-y-2">
-                {pendingReturns.map((ret: any) => (
+                {pendingReturns!.map((ret: any) => (
                   <Card key={ret.id}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium">{ret.returnCode} - Sale: {ret.sale?.saleCode}</p>
+                          <p className="font-medium">
+                            {ret.returnCode} — Sale: {ret.sale?.saleCode}
+                          </p>
                           <p className="text-sm text-muted-foreground">Reason: {ret.reason}</p>
-                          <p className="text-xs text-muted-foreground">By: {ret.user?.firstName} {ret.user?.lastName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            By: {ret.user?.firstName} {ret.user?.lastName}
+                          </p>
                         </div>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline" onClick={() => rejectReturnMutation.mutate({ id: ret.id, reason: 'Rejected by admin' })}>Reject</Button>
-                          <Button size="sm" onClick={() => approveReturnMutation.mutate(ret.id)}>Approve</Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => rejectReturnMutation.mutate({ id: ret.id, reason: 'Rejected by admin' })}
+                          >
+                            Reject
+                          </Button>
+                          <Button size="sm" onClick={() => approveReturnMutation.mutate(ret.id)}>
+                            Approve
+                          </Button>
                         </div>
                       </div>
                     </CardContent>
@@ -201,19 +227,25 @@ const Notifications = () => {
             </div>
           )}
 
-          {/* Pending Devices */}
-          {isAdmin && pendingDevices && pendingDevices.length > 0 && (
+          {/* Pending Devices — admin only */}
+          {isAdmin && (pendingDevices?.length ?? 0) > 0 && (
             <div>
-              <h3 className="font-bold mb-3 flex items-center gap-2"><Smartphone className="w-5 h-5" /> Pending Devices ({pendingDevices.length})</h3>
+              <h3 className="font-bold mb-3 flex items-center gap-2">
+                <Smartphone className="w-5 h-5" /> Pending Devices ({pendingDevices!.length})
+              </h3>
               <div className="space-y-2">
-                {pendingDevices.map((device: any) => (
+                {pendingDevices!.map((device: any) => (
                   <Card key={device.id}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium">{device.user?.firstName} {device.user?.lastName}</p>
-                          <p className="text-sm text-muted-foreground">{device.deviceInfo}</p>
-                          <p className="text-xs text-muted-foreground">{device.ipAddress}</p>
+                          <p className="font-medium">
+                            {device.user?.firstName} {device.user?.lastName}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {device.name || 'Unknown device'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{device.user?.email}</p>
                         </div>
                         <Button size="sm" onClick={() => approveDeviceMutation.mutate(device.id)}>
                           <CheckCircle className="w-4 h-4 mr-1" /> Approve
@@ -226,44 +258,46 @@ const Notifications = () => {
             </div>
           )}
 
-          {/* Pending Transfers */}
-          {pendingTransfers && pendingTransfers.length > 0 && (
-            <div>
-              <h3 className="font-bold mb-3 flex items-center gap-2"><ArrowLeftRight className="w-5 h-5" /> Pending Transfers ({pendingTransfers.length})</h3>
-              <div className="space-y-2">
-                {pendingTransfers.map((transfer: any) => (
-                  <Card key={transfer.id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">{transfer.transferCode}</p>
-                          <p className="text-sm text-muted-foreground">{transfer.fromBranch?.name} to {transfer.toBranch?.name}</p>
-                        </div>
-                        <Button size="sm" onClick={() => approveTransferMutation.mutate(transfer.id)}>Approve</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Pending Expenses */}
-          {pendingExpenses && pendingExpenses.length > 0 && (
+          {(pendingExpenses?.length ?? 0) > 0 && (
             <div>
-              <h3 className="font-bold mb-3 flex items-center gap-2"><Receipt className="w-5 h-5" /> Pending Expenses ({pendingExpenses.length})</h3>
+              <h3 className="font-bold mb-3 flex items-center gap-2">
+                <Receipt className="w-5 h-5" /> Pending Expenses ({pendingExpenses!.length})
+              </h3>
               <div className="space-y-2">
-                {pendingExpenses.map((expense: any) => (
+                {pendingExpenses!.map((expense: any) => (
                   <Card key={expense.id}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium">{expense.expenseCode} - {expense.category}</p>
+                          <p className="font-medium">
+                            {expense.expenseCode} — {expense.category}
+                          </p>
                           <p className="text-sm text-muted-foreground">{expense.description}</p>
+                          <p className="text-xs text-muted-foreground">
+                            KES {Number(expense.amount).toLocaleString()} ·{' '}
+                            {expense.branch?.name}
+                          </p>
                         </div>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline" onClick={() => {}}>Reject</Button>
-                          <Button size="sm" onClick={() => approveExpenseMutation.mutate(expense.id)}>Approve</Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              rejectExpenseMutation.mutate({
+                                id: expense.id,
+                                reason: 'Rejected by admin',
+                              })
+                            }
+                          >
+                            Reject
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => approveExpenseMutation.mutate(expense.id)}
+                          >
+                            Approve
+                          </Button>
                         </div>
                       </div>
                     </CardContent>
@@ -273,7 +307,7 @@ const Notifications = () => {
             </div>
           )}
 
-          {(!pendingReturns?.length && !pendingDevices?.length && !pendingTransfers?.length && !pendingExpenses?.length) && (
+          {!hasPending && (
             <div className="text-center py-12 text-muted-foreground">
               <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-30" />
               <p>All caught up! No pending approvals.</p>
