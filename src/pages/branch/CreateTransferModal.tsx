@@ -1,205 +1,352 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/api';
 import { useAuthStore } from '@/store';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Plus, Trash2, Package, AlertCircle } from 'lucide-react';
+import {
+  ArrowRightLeft,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Package,
+  Flame,
+  MapPin,
+  User,
+  Calendar,
+  AlertTriangle,
+} from 'lucide-react';
 
-interface Branch { id: string; name: string; }
-
-interface InventoryItem {
+interface Transfer {
   id: string;
-  productId: string;
-  quantity: number;
-  fullCylinders: number | null;
-  product: { id: string; name: string; isCylinderTracked: boolean; };
+  transferCode?: string;
+  status: 'PENDING' | 'PARTIAL' | 'COMPLETED' | 'CANCELLED';
+  fromBranch: { id: string; name: string };
+  toBranch: { id: string; name: string };
+  requestedBy: { id: string; firstName: string; lastName: string };
+  items: TransferItem[];
+  notes?: string;
+  createdAt: string;
+  respondedAt?: string;
 }
 
-interface TransferItemForm {
+interface TransferItem {
   id: string;
-  productId: string;
+  product: { id: string; name: string; isLpg?: boolean; unit?: string };
   quantity: number;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  lpgComponent?: 'REFILL' | 'CYLINDER' | null;
+  cylinder?: { id: string; serialNumber: string } | null;
   notes?: string;
 }
 
-export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+interface Props {
+  transfer: Transfer;
+  onClose: () => void;
+  onUpdate: () => void;
+}
+
+const statusConfig = {
+  PENDING: { color: 'bg-yellow-100 text-yellow-800', icon: Clock },
+  PARTIAL: { color: 'bg-blue-100 text-blue-800', icon: AlertTriangle },
+  COMPLETED: { color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
+  CANCELLED: { color: 'bg-red-100 text-red-800', icon: XCircle },
+};
+
+const itemStatusConfig = {
+  PENDING: { color: 'bg-yellow-100 text-yellow-700 border-yellow-200', label: 'Pending Response' },
+  ACCEPTED: { color: 'bg-green-100 text-green-700 border-green-200', label: 'Accepted' },
+  REJECTED: { color: 'bg-red-100 text-red-700 border-red-200', label: 'Rejected' },
+};
+
+export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
   const { user } = useAuthStore();
-  const [toBranchId, setToBranchId] = useState('');
-  const [items, setItems] = useState<TransferItemForm[]>([]);
-  const [notes, setNotes] = useState('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [itemResponses, setItemResponses] = useState<Record<string, { status: 'ACCEPTED' | 'REJECTED' | null; notes: string }>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { data: branches } = useQuery({
-    queryKey: ['branches'],
-    queryFn: async () => {
-      const { data } = await api.get('/branches');
-      return (data as Branch[]).filter((b) => b.id !== user?.branchId);
+  const isIncoming = transfer.toBranch.id === user?.branchId;
+  const isOutgoing = transfer.fromBranch.id === user?.branchId;
+  const canRespond = isIncoming && (transfer.status === 'PENDING' || transfer.status === 'PARTIAL');
+
+  const respondMutation = useMutation({
+    mutationFn: async (data: { items: { itemId: string; status: 'ACCEPTED' | 'REJECTED'; notes?: string }[] }) => {
+      return api.post(`/inventory/transfers/${transfer.id}/respond`, data);
     },
-  });
-
-  const { data: inventory } = useQuery({
-    queryKey: ['inventory', 'branch', user?.branchId],
-    queryFn: async () => {
-      const { data } = await api.get(`/inventory?branchId=${user?.branchId}`);
-      return data as InventoryItem[];
+    onSuccess: () => {
+      toast.success('Transfer response submitted successfully');
+      onUpdate();
+      onClose();
     },
-    enabled: !!user?.branchId,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => api.post('/transfers', data),
-    onSuccess: () => { toast.success('Transfer created successfully'); onSuccess(); onClose(); },
     onError: (err: any) => {
-      toast.error('Failed to create transfer', { description: err.response?.data?.message || 'Something went wrong' });
+      toast.error('Failed to respond', {
+        description: err.response?.data?.message || 'Something went wrong',
+      });
     },
   });
 
-  const addItem = () => setItems([...items, { id: crypto.randomUUID(), productId: '', quantity: 1 }]);
-  const removeItem = (id: string) => setItems(items.filter((i) => i.id !== id));
-  const updateItem = (id: string, updates: Partial<TransferItemForm>) =>
-    setItems(items.map((i) => (i.id === id ? { ...i, ...updates } : i)));
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      return api.post(`/inventory/transfers/${transfer.id}/cancel`);
+    },
+    onSuccess: () => {
+      toast.success('Transfer cancelled');
+      onUpdate();
+      onClose();
+    },
+    onError: (err: any) => {
+      toast.error('Failed to cancel', {
+        description: err.response?.data?.message || 'Something went wrong',
+      });
+    },
+  });
 
-  const getAvailableStock = (productId: string): number => {
-    const inv = inventory?.find((i) => i.productId === productId);
-    if (!inv) return 0;
-    return inv.product.isCylinderTracked && inv.fullCylinders != null ? inv.fullCylinders : inv.quantity;
+  const handleItemResponse = (itemId: string, status: 'ACCEPTED' | 'REJECTED') => {
+    setItemResponses((prev) => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], status },
+    }));
   };
 
-  const validate = (): boolean => {
-    const errs: Record<string, string> = {};
-    if (!toBranchId) errs.toBranch = 'Please select a destination branch';
-    if (items.length === 0) errs.items = 'Add at least one item';
-    items.forEach((item, idx) => {
-      if (!item.productId) errs[`item_${idx}_product`] = 'Select a product';
-      if (item.quantity < 1) errs[`item_${idx}_qty`] = 'Quantity must be at least 1';
-      const stock = getAvailableStock(item.productId);
-      if (item.productId && item.quantity > stock) errs[`item_${idx}_qty`] = `Only ${stock} available`;
-    });
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
+  const handleItemNotes = (itemId: string, notes: string) => {
+    setItemResponses((prev) => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], notes },
+    }));
   };
 
-  const handleSubmit = () => {
-    if (!validate()) return;
-    createMutation.mutate({
-      fromBranchId: user?.branchId,
-      toBranchId,
-      notes: notes || undefined,
-      items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-    });
+  const handleSubmitResponse = async () => {
+    const responses = Object.entries(itemResponses)
+      .filter(([_, data]) => data.status !== null)
+      .map(([itemId, data]) => ({
+        itemId,
+        status: data.status!,
+        notes: data.notes,
+      }));
+
+    if (responses.length === 0) {
+      toast.error('Please select at least one item to respond to');
+      return;
+    }
+
+    setIsSubmitting(true);
+    await respondMutation.mutateAsync({ items: responses });
+    setIsSubmitting(false);
   };
+
+  const handleCancel = async () => {
+    if (!confirm('Are you sure you want to cancel this transfer?')) return;
+    await cancelMutation.mutateAsync();
+  };
+
+  const statusConfigItem = statusConfig[transfer.status];
+  const StatusIcon = statusConfigItem.icon;
+
+  // Count items by status
+  const pendingItems = transfer.items.filter((i) => i.status === 'PENDING');
+  const acceptedItems = transfer.items.filter((i) => i.status === 'ACCEPTED');
+  const rejectedItems = transfer.items.filter((i) => i.status === 'REJECTED');
 
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Package className="h-5 w-5" /> Create New Transfer
+            <Package className="h-5 w-5" />
+            Transfer Details
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
-          <div className="space-y-2">
-            <Label>To Branch</Label>
-            <Select value={toBranchId} onValueChange={setToBranchId}>
-              <SelectTrigger className={errors.toBranch ? 'border-red-500' : ''}>
-                <SelectValue placeholder="Select destination branch" />
-              </SelectTrigger>
-              <SelectContent>
-                {branches?.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {errors.toBranch && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3" />{errors.toBranch}</p>}
+          {/* Transfer Info */}
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="space-y-1">
+              <span className="text-muted-foreground flex items-center gap-1">
+                <MapPin className="h-3 w-3" /> From
+              </span>
+              <p className="font-medium">{transfer.fromBranch.name}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-muted-foreground flex items-center gap-1">
+                <MapPin className="h-3 w-3" /> To
+              </span>
+              <p className="font-medium">{transfer.toBranch.name}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-muted-foreground flex items-center gap-1">
+                <User className="h-3 w-3" /> Requested By
+              </span>
+              <p className="font-medium">{transfer.requestedBy.firstName} {transfer.requestedBy.lastName}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-muted-foreground flex items-center gap-1">
+                <Calendar className="h-3 w-3" /> Date
+              </span>
+              <p className="font-medium">{new Date(transfer.createdAt).toLocaleString()}</p>
+            </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Items</Label>
-              <Button type="button" size="sm" variant="outline" onClick={addItem}>
-                <Plus className="h-4 w-4 mr-1" /> Add Item
-              </Button>
-            </div>
-
-            {errors.items && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="h-3 w-3" />{errors.items}</p>}
-
-            {items.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
-                <Package className="mx-auto h-8 w-8 mb-2 opacity-50" />
-                <p className="text-sm">No items added yet</p>
-              </div>
+          {/* Status Badge */}
+          <div className="flex items-center gap-2">
+            <Badge className={statusConfigItem.color}>
+              <StatusIcon className="w-3 h-3 mr-1" />
+              {transfer.status}
+            </Badge>
+            {isIncoming && (
+              <Badge variant="outline" className="bg-purple-50 text-purple-700">
+                Incoming to your branch
+              </Badge>
             )}
+            {isOutgoing && (
+              <Badge variant="outline" className="bg-gray-50 text-gray-700">
+                Outgoing from your branch
+              </Badge>
+            )}
+          </div>
 
-            {items.map((item, idx) => {
-              const stock = getAvailableStock(item.productId);
+          {/* Summary */}
+          <div className="flex gap-4 text-sm">
+            <div className="flex items-center gap-1 text-yellow-700">
+              <Clock className="h-4 w-4" />
+              <span>{pendingItems.length} pending</span>
+            </div>
+            <div className="flex items-center gap-1 text-green-700">
+              <CheckCircle2 className="h-4 w-4" />
+              <span>{acceptedItems.length} accepted</span>
+            </div>
+            <div className="flex items-center gap-1 text-red-700">
+              <XCircle className="h-4 w-4" />
+              <span>{rejectedItems.length} rejected</span>
+            </div>
+          </div>
+
+          {/* Notes */}
+          {transfer.notes && (
+            <div className="bg-gray-50 p-3 rounded-md text-sm">
+              <span className="text-muted-foreground">Notes:</span>
+              <p className="mt-1">{transfer.notes}</p>
+            </div>
+          )}
+
+          {/* Items List */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-sm">Transfer Items</h3>
+            {transfer.items.map((item) => {
+              const itemConfig = itemStatusConfig[item.status];
+              const response = itemResponses[item.id];
+
               return (
-                <div key={item.id} className="border rounded-lg p-4 space-y-3 bg-gray-50/50">
+                <div
+                  key={item.id}
+                  className={`border rounded-lg p-4 space-y-3 ${
+                    item.status === 'PENDING' && canRespond
+                      ? 'border-dashed border-gray-300'
+                      : itemConfig.color
+                  }`}
+                >
                   <div className="flex items-start justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Item {idx + 1}</span>
-                    <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500" onClick={() => removeItem(item.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2 space-y-1">
-                      <Label className="text-xs">Product</Label>
-                      <Select value={item.productId} onValueChange={(val) => updateItem(item.id, { productId: val })}>
-                        <SelectTrigger className={errors[`item_${idx}_product`] ? 'border-red-500' : ''}>
-                          <SelectValue placeholder="Select product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {inventory?.map((inv) => {
-                            const available = inv.product.isCylinderTracked && inv.fullCylinders != null
-                              ? inv.fullCylinders : inv.quantity;
-                            return (
-                              <SelectItem key={inv.productId} value={inv.productId}>
-                                {inv.product.name} ({available} in stock)
-                              </SelectItem>
-                            );
-                          })}
-                        </SelectContent>
-                      </Select>
-                      {errors[`item_${idx}_product`] && <p className="text-xs text-red-500">{errors[`item_${idx}_product`]}</p>}
-                    </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Quantity</Label>
-                      <Input type="number" min={1} max={stock || undefined} value={item.quantity}
-                        onChange={(e) => updateItem(item.id, { quantity: parseInt(e.target.value) || 1 })}
-                        className={errors[`item_${idx}_qty`] ? 'border-red-500' : ''} />
-                      {item.productId && <p className="text-xs text-muted-foreground">Available: {stock}</p>}
-                      {errors[`item_${idx}_qty`] && <p className="text-xs text-red-500">{errors[`item_${idx}_qty`]}</p>}
+                      <div className="flex items-center gap-2">
+                        {item.product.isLpg && <Flame className="h-4 w-4 text-orange-500" />}
+                        <span className="font-medium">{item.product.name}</span>
+                        {item.lpgComponent && (
+                          <Badge variant="outline" className="text-xs">
+                            {item.lpgComponent}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Quantity: {item.quantity} {item.product.unit || 'units'}
+                      </p>
+                      {item.cylinder && (
+                        <p className="text-xs text-muted-foreground font-mono">
+                          Cylinder: #{item.cylinder.serialNumber}
+                        </p>
+                      )}
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Notes (optional)</Label>
-                      <Input placeholder="Any notes..." value={item.notes || ''}
-                        onChange={(e) => updateItem(item.id, { notes: e.target.value })} />
-                    </div>
+                    <Badge className={itemConfig.color}>
+                      {itemConfig.label}
+                    </Badge>
                   </div>
+
+                  {/* Response controls for pending items */}
+                  {item.status === 'PENDING' && canRespond && (
+                    <div className="space-y-3 pt-2 border-t border-dashed">
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant={response?.status === 'ACCEPTED' ? 'default' : 'outline'}
+                          className={response?.status === 'ACCEPTED' ? 'bg-green-600 hover:bg-green-700' : ''}
+                          onClick={() => handleItemResponse(item.id, 'ACCEPTED')}
+                        >
+                          <CheckCircle2 className="w-4 h-4 mr-1" />
+                          Accept
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={response?.status === 'REJECTED' ? 'default' : 'outline'}
+                          className={response?.status === 'REJECTED' ? 'bg-red-600 hover:bg-red-700' : ''}
+                          onClick={() => handleItemResponse(item.id, 'REJECTED')}
+                        >
+                          <XCircle className="w-4 h-4 mr-1" />
+                          Reject
+                        </Button>
+                      </div>
+
+                      {response?.status && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">Notes (optional)</Label>
+                          <Textarea
+                            placeholder={`Reason for ${response.status.toLowerCase()}...`}
+                            className="text-sm min-h-[60px]"
+                            value={response.notes || ''}
+                            onChange={(e) => handleItemNotes(item.id, e.target.value)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Show existing notes */}
+                  {item.notes && item.status !== 'PENDING' && (
+                    <p className="text-xs text-muted-foreground pt-2 border-t">
+                      <span className="font-medium">Note:</span> {item.notes}
+                    </p>
+                  )}
                 </div>
               );
             })}
           </div>
-
-          <div className="space-y-2">
-            <Label>Transfer Notes (optional)</Label>
-            <Textarea placeholder="Any overall notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={createMutation.isPending || items.length === 0}>
-            {createMutation.isPending ? 'Creating...' : 'Create Transfer'}
+        <DialogFooter className="gap-2">
+          {canRespond && pendingItems.length > 0 && (
+            <Button
+              onClick={handleSubmitResponse}
+              disabled={isSubmitting || Object.values(itemResponses).filter((r) => r.status).length === 0}
+            >
+              {isSubmitting ? 'Submitting...' : 'Submit Response'}
+            </Button>
+          )}
+          {isOutgoing && transfer.status === 'PENDING' && (
+            <Button variant="outline" className="text-red-600" onClick={handleCancel}>
+              Cancel Transfer
+            </Button>
+          )}
+          <Button variant="outline" onClick={onClose}>
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
-
-export default CreateTransferModal;
