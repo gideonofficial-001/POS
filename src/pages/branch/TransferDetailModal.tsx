@@ -29,7 +29,7 @@ import {
 
 interface Transfer {
   id: string;
-  transferCode: string;
+  transferCode?: string;
   status: 'PENDING' | 'PARTIAL' | 'COMPLETED' | 'CANCELLED';
   fromBranch: { id: string; name: string };
   toBranch: { id: string; name: string };
@@ -162,7 +162,7 @@ export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
-            Transfer {transfer.transferCode}
+            Transfer Details
           </DialogTitle>
         </DialogHeader>
 
