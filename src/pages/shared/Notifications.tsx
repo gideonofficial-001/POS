@@ -4,10 +4,11 @@ import { useAuthStore } from '@/store'
 import { UserRole } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatRelativeTime } from '@/lib/utils'
+import { formatRelativeTime, formatCurrency, formatDateTime } from '@/lib/utils'
 import { toast } from 'sonner'
-import { Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check } from 'lucide-react'
+import { Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check, Package, Building2, Clock } from 'lucide-react'
 import { useState } from 'react'
 
 const Notifications = () => {
@@ -16,6 +17,10 @@ const Notifications = () => {
   const [activeTab, setActiveTab] = useState('notifications')
   const isAdmin = user?.role === UserRole.SUPER_ADMIN
   const isManager = user?.role === UserRole.OVERALL_MANAGER
+
+  // Per-return inline rejection state
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   const { data: notifications } = useQuery({
     queryKey: ['notifications'],
@@ -89,6 +94,8 @@ const Notifications = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-returns'] })
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
+      setRejectingId(null)
+      setRejectReason('')
       toast.success('Return rejected')
     },
   })
@@ -193,33 +200,114 @@ const Notifications = () => {
               <h3 className="font-bold mb-3 flex items-center gap-2">
                 <RotateCcw className="w-5 h-5" /> Pending Returns ({pendingReturns!.length})
               </h3>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {pendingReturns!.map((ret: any) => (
                   <Card key={ret.id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">
-                            {ret.returnCode} — Sale: {ret.sale?.saleCode}
-                          </p>
-                          <p className="text-sm text-muted-foreground">Reason: {ret.reason}</p>
-                          <p className="text-xs text-muted-foreground">
-                            By: {ret.user?.firstName} {ret.user?.lastName}
-                          </p>
+                    <CardContent className="p-4 space-y-3">
+                      {/* Header: code + branch + action buttons */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold">{ret.returnCode}</p>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-sm">Sale: {ret.sale?.saleCode}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1 text-sm text-muted-foreground">
+                            <Building2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>{ret.sale?.branch?.name ?? 'Unknown branch'}</span>
+                          </div>
                         </div>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => rejectReturnMutation.mutate({ id: ret.id, reason: 'Rejected by admin' })}
-                          >
-                            Reject
-                          </Button>
-                          <Button size="sm" onClick={() => approveReturnMutation.mutate(ret.id)}>
-                            Approve
-                          </Button>
-                        </div>
+                        {rejectingId !== ret.id && (
+                          <div className="flex gap-2 shrink-0">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={rejectReturnMutation.isPending || approveReturnMutation.isPending}
+                              onClick={() => { setRejectingId(ret.id); setRejectReason('') }}
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={approveReturnMutation.isPending || rejectReturnMutation.isPending}
+                              onClick={() => approveReturnMutation.mutate(ret.id)}
+                            >
+                              Approve
+                            </Button>
+                          </div>
+                        )}
                       </div>
+
+                      {/* Products */}
+                      {(ret.sale?.saleItems?.length ?? 0) > 0 && (
+                        <div className="flex items-start gap-1.5">
+                          <Package className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                          <div className="flex flex-wrap gap-1">
+                            {ret.sale.saleItems.map((item: any) => (
+                              <span
+                                key={item.id}
+                                className="text-xs bg-muted px-2 py-0.5 rounded-full"
+                              >
+                                {item.product?.name} ×{item.quantity}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Reason + refund amount */}
+                      <div className="text-sm space-y-0.5">
+                        <p><span className="text-muted-foreground">Reason:</span> {ret.reason}</p>
+                        <p>
+                          <span className="text-muted-foreground">Refund:</span>{' '}
+                          <span className="font-semibold">{formatCurrency(ret.refundAmount)}</span>
+                        </p>
+                      </div>
+
+                      {/* Footer: who + when */}
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>By: {ret.user?.firstName} {ret.user?.lastName}</span>
+                        <span>·</span>
+                        <Clock className="w-3 h-3" />
+                        <span title={formatDateTime(ret.createdAt)}>
+                          {formatRelativeTime(ret.createdAt)}
+                        </span>
+                      </div>
+
+                      {/* Inline rejection input */}
+                      {rejectingId === ret.id && (
+                        <div className="pt-2 border-t space-y-2">
+                          <p className="text-xs font-medium text-destructive">Rejection reason *</p>
+                          <div className="flex gap-2">
+                            <Input
+                              className="h-8 text-sm flex-1"
+                              placeholder="Explain why this return is being rejected..."
+                              value={rejectReason}
+                              onChange={(e) => setRejectReason(e.target.value)}
+                              autoFocus
+                            />
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="shrink-0"
+                              disabled={!rejectReason.trim() || rejectReturnMutation.isPending}
+                              onClick={() =>
+                                rejectReturnMutation.mutate({ id: ret.id, reason: rejectReason.trim() })
+                              }
+                            >
+                              {rejectReturnMutation.isPending ? 'Rejecting...' : 'Confirm'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="shrink-0"
+                              onClick={() => { setRejectingId(null); setRejectReason('') }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
