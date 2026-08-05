@@ -94,7 +94,7 @@ const ReturnsPage = () => {
                     <p className="text-sm mt-1">Reason: {ret.reason}</p>
                     <p className="text-xs text-muted-foreground mt-1">{formatDate(ret.createdAt)}</p>
                   </div>
-                  <p className="text-xl font-bold">{formatCurrency(ret.amount)}</p>
+                  <p className="text-xl font-bold">{formatCurrency(ret.refundAmount)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -130,7 +130,7 @@ const ReturnsPage = () => {
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
               <Button
-                onClick={() => foundSale && createMutation.mutate({ saleId: foundSale.id, reason, amount: foundSale.total })}
+                onClick={() => foundSale && createMutation.mutate({ saleId: foundSale.id, reason, amount: Number(foundSale.total) })}
                 disabled={!foundSale || !reason || createMutation.isPending}
               >
                 Submit Return
