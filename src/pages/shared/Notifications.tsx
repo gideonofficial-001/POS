@@ -8,7 +8,15 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatRelativeTime, formatCurrency, formatDateTime } from '@/lib/utils'
 import { toast } from 'sonner'
-import { Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check, Package, Building2, Clock } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check, Package, Building2, Clock, MapPin, Copy, Mail, MailX } from 'lucide-react'
 import { useState } from 'react'
 
 const Notifications = () => {
@@ -21,6 +29,15 @@ const Notifications = () => {
   // Per-return inline rejection state
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+
+  // Device approval code dialog
+  const [approvedDevice, setApprovedDevice] = useState<{
+    code: string
+    userName: string
+    userEmail: string
+    emailSent: boolean
+    emailError: string | null
+  } | null>(null)
 
   const { data: notifications } = useQuery({
     queryKey: ['notifications'],
@@ -73,10 +90,17 @@ const Notifications = () => {
 
   const approveDeviceMutation = useMutation({
     mutationFn: (id: string) => devicesApi.approve(id),
-    onSuccess: () => {
+    onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ['pending-devices'] })
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
-      toast.success('Device approved and code sent')
+      const d = response.data
+      setApprovedDevice({
+        code:       d.code,
+        userName:   d.userName,
+        userEmail:  d.userEmail,
+        emailSent:  d.emailSent,
+        emailError: d.emailError ?? null,
+      })
     },
   })
 
@@ -319,29 +343,65 @@ const Notifications = () => {
           {isAdmin && (pendingDevices?.length ?? 0) > 0 && (
             <div>
               <h3 className="font-bold mb-3 flex items-center gap-2">
-                <Smartphone className="w-5 h-5" /> Pending Devices ({pendingDevices!.length})
+                <Smartphone className="w-5 h-5" /> Pending Device Approvals ({pendingDevices!.length})
               </h3>
-              <div className="space-y-2">
-                {pendingDevices!.map((device: any) => (
-                  <Card key={device.id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">
-                            {device.user?.firstName} {device.user?.lastName}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {device.name || 'Unknown device'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">{device.user?.email}</p>
+              <div className="space-y-3">
+                {pendingDevices!.map((device: any) => {
+                  const locationParts = [device.loginCity, device.loginRegion, device.loginCountry].filter(Boolean)
+                  const locationStr = locationParts.length > 0 ? locationParts.join(', ') : null
+
+                  return (
+                    <Card key={device.id} className="border-amber-200 bg-amber-50/30">
+                      <CardContent className="p-4 space-y-3">
+                        {/* Header: name + branch + approve button */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold">
+                              {device.user?.firstName} {device.user?.lastName}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{device.user?.email}</p>
+                            {device.user?.branch?.name && (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                                <Building2 className="w-3 h-3" />
+                                <span>{device.user.branch.name}</span>
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            disabled={approveDeviceMutation.isPending}
+                            onClick={() => approveDeviceMutation.mutate(device.id)}
+                          >
+                            <CheckCircle className="w-4 h-4 mr-1" />
+                            {approveDeviceMutation.isPending ? 'Approving…' : 'Approve'}
+                          </Button>
                         </div>
-                        <Button size="sm" onClick={() => approveDeviceMutation.mutate(device.id)}>
-                          <CheckCircle className="w-4 h-4 mr-1" /> Approve
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+
+                        {/* Location — the key new info */}
+                        {locationStr && (
+                          <div className="flex items-center gap-1.5 text-sm font-medium">
+                            <MapPin className="w-4 h-4 shrink-0 text-amber-600" />
+                            <span>Logging in from <span className="text-amber-700">{locationStr}</span></span>
+                          </div>
+                        )}
+
+                        {/* Device + IP */}
+                        <div className="text-xs text-muted-foreground space-y-0.5">
+                          <p className="truncate">
+                            <span className="font-medium">Device: </span>
+                            {device.name || 'Unknown'}
+                          </p>
+                          {device.loginIpAddress && (
+                            <p>
+                              <span className="font-medium">IP: </span>
+                              {device.loginIpAddress}
+                            </p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -403,6 +463,69 @@ const Notifications = () => {
           )}
         </div>
       )}
+
+      {/* ── Device Approval Code Dialog ─────────────────────────────── */}
+      <Dialog open={!!approvedDevice} onOpenChange={(open) => !open && setApprovedDevice(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Smartphone className="w-5 h-5" /> Device Approved
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <p className="text-sm text-muted-foreground">
+              {approvedDevice?.userName} can now complete login using this code.
+            </p>
+
+            {/* Email status banner */}
+            {approvedDevice?.emailSent ? (
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+                <Mail className="w-4 h-4 shrink-0" />
+                <span>Code emailed to <strong>{approvedDevice.userEmail}</strong></span>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                <MailX className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{approvedDevice?.emailError ?? 'Email not sent — share the code below directly.'}</span>
+              </div>
+            )}
+
+            {/* The code */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">6-Digit Authorization Code</Label>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 bg-muted rounded-lg py-3 text-center">
+                  <span className="text-3xl font-mono font-bold tracking-[0.4em] text-primary">
+                    {approvedDevice?.code}
+                  </span>
+                </div>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="shrink-0"
+                  title="Copy code"
+                  onClick={() => {
+                    navigator.clipboard.writeText(approvedDevice?.code ?? '')
+                    toast.success('Code copied to clipboard')
+                  }}
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground text-center">
+                Expires in 30 minutes · Single use
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button className="w-full" onClick={() => setApprovedDevice(null)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
