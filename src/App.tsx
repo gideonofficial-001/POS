@@ -17,6 +17,7 @@ import Branches from '@/pages/admin/Branches'
 import Inventory from '@/pages/admin/Inventory'
 import Customers from '@/pages/admin/Customers'
 import AuditLogs from '@/pages/admin/AuditLogs'
+import AdminDevices from '@/pages/admin/Devices'
 
 // Manager Pages
 import ManagerDashboard from '@/pages/manager/Dashboard'
@@ -98,6 +99,11 @@ function App() {
         <Route path="/admin/audit-logs" element={
           <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}>
             <AuditLogs />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/devices" element={
+          <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}>
+            <AdminDevices />
           </ProtectedRoute>
         } />
 
