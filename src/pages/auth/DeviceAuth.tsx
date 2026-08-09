@@ -72,7 +72,8 @@ const DeviceAuth = () => {
         </div>
         <CardTitle className="text-2xl text-center">Device Authorization</CardTitle>
         <CardDescription className="text-center">
-          Enter the 6-digit code sent to your email
+          Your administrator has been notified. Once they approve your device,
+          they'll share a 6-digit code with you directly.
         </CardDescription>
       </CardHeader>
       <CardContent>
