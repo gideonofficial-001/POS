@@ -16,8 +16,22 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check, Package, Building2, Clock, MapPin, Copy, Mail, MailX } from 'lucide-react'
+import { Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check, Package, Building2, Clock, MapPin, Copy, Mail, MailX, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Extract the 6-digit authorization code embedded in a DEVICE_AUTH
+ * notification message by the backend (e.g. "… Authorization code: 123456 …").
+ * Returns null if no code is found.
+ */
+function extractAuthCode(message: string): string | null {
+  const match = message.match(/Authorization code:\s*(\d{6})/i)
+  return match ? match[1] : null
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 const Notifications = () => {
   const { user } = useAuthStore()
@@ -30,7 +44,7 @@ const Notifications = () => {
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
 
-  // Device approval code dialog
+  // Device approval code dialog (for when admin clicks "Approve" in Pending tab)
   const [approvedDevice, setApprovedDevice] = useState<{
     code: string
     userName: string
@@ -39,12 +53,17 @@ const Notifications = () => {
     emailError: string | null
   } | null>(null)
 
+  // ── Queries ────────────────────────────────────────────────────────────────
+
   const { data: notifications } = useQuery({
     queryKey: ['notifications'],
     queryFn: async () => {
       const response = await notificationsApi.getAll()
       return response.data
     },
+    // BUG FIX: Poll every 20 s so the admin sees new device requests without
+    // having to manually refresh the page.
+    refetchInterval: 20_000,
   })
 
   const { data: pendingApprovals } = useQuery({
@@ -54,6 +73,7 @@ const Notifications = () => {
       return response.data
     },
     enabled: isAdmin || isManager,
+    refetchInterval: 20_000,
   })
 
   const { data: pendingDevices } = useQuery({
@@ -63,6 +83,7 @@ const Notifications = () => {
       return response.data
     },
     enabled: isAdmin,
+    refetchInterval: 20_000,
   })
 
   const { data: pendingReturns } = useQuery({
@@ -83,6 +104,8 @@ const Notifications = () => {
     enabled: isAdmin || isManager,
   })
 
+  // ── Mutations ──────────────────────────────────────────────────────────────
+
   const markReadMutation = useMutation({
     mutationFn: (id: string) => notificationsApi.markAsRead(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
@@ -93,6 +116,7 @@ const Notifications = () => {
     onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ['pending-devices'] })
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
       const d = response.data
       setApprovedDevice({
         code:       d.code,
@@ -143,12 +167,14 @@ const Notifications = () => {
     },
   })
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
   const getIcon = (type: string) => {
     switch (type) {
-      case 'DEVICE_AUTH':      return <Smartphone className="w-5 h-5" />
-      case 'RETURN_REQUEST':   return <RotateCcw className="w-5 h-5" />
+      case 'DEVICE_AUTH':       return <Smartphone className="w-5 h-5" />
+      case 'RETURN_REQUEST':    return <RotateCcw className="w-5 h-5" />
       case 'EXPENSE_SUBMITTED': return <Receipt className="w-5 h-5" />
-      default:                 return <Bell className="w-5 h-5" />
+      default:                  return <Bell className="w-5 h-5" />
     }
   }
 
@@ -156,6 +182,8 @@ const Notifications = () => {
     (pendingReturns?.length ?? 0) > 0 ||
     (pendingDevices?.length ?? 0) > 0 ||
     (pendingExpenses?.length ?? 0) > 0
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6 p-6">
@@ -184,32 +212,84 @@ const Notifications = () => {
               <p>No notifications</p>
             </div>
           ) : (
-            notifications?.map((notif: any) => (
-              <Card key={notif.id} className={notif.status === 'UNREAD' ? 'border-primary/50' : ''}>
-                <CardContent className="p-4 flex items-start gap-3">
-                  <div className="p-2 bg-muted rounded-lg shrink-0">
-                    {getIcon(notif.type)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">{notif.title}</p>
-                    <p className="text-sm text-muted-foreground">{notif.message}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {formatRelativeTime(notif.createdAt)}
-                    </p>
-                  </div>
-                  {notif.status === 'UNREAD' && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0"
-                      onClick={() => markReadMutation.mutate(notif.id)}
+            notifications?.map((notif: any) => {
+              // BUG FIX: For DEVICE_AUTH notifications, extract the pre-generated
+              // code from the message and render it as a copyable chip so the
+              // admin can send it to the user straight from this list.
+              const authCode =
+                notif.type === 'DEVICE_AUTH'
+                  ? extractAuthCode(notif.message)
+                  : null
+
+              return (
+                <Card
+                  key={notif.id}
+                  className={
+                    notif.type === 'DEVICE_AUTH'
+                      ? 'border-amber-300 bg-amber-50/40'
+                      : notif.status === 'UNREAD'
+                      ? 'border-primary/50'
+                      : ''
+                  }
+                >
+                  <CardContent className="p-4 flex items-start gap-3">
+                    <div
+                      className={`p-2 rounded-lg shrink-0 ${
+                        notif.type === 'DEVICE_AUTH'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-muted'
+                      }`}
                     >
-                      <Check className="w-4 h-4" />
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ))
+                      {getIcon(notif.type)}
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <p className="font-medium">{notif.title}</p>
+                      <p className="text-sm text-muted-foreground">{notif.message}</p>
+
+                      {/* ── Inline copy button for DEVICE_AUTH codes ── */}
+                      {authCode && (
+                        <div className="flex items-center gap-2 pt-1">
+                          <div className="flex items-center gap-2 bg-white border border-amber-300 rounded-lg px-3 py-1.5">
+                            <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span className="font-mono text-xl font-bold tracking-[0.3em] text-amber-800">
+                              {authCode}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-50"
+                            onClick={() => {
+                              navigator.clipboard.writeText(authCode)
+                              toast.success('Code copied to clipboard')
+                            }}
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            Copy code
+                          </Button>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-muted-foreground">
+                        {formatRelativeTime(notif.createdAt)}
+                      </p>
+                    </div>
+
+                    {notif.status === 'UNREAD' && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0"
+                        onClick={() => markReadMutation.mutate(notif.id)}
+                      >
+                        <Check className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })
           )}
         </div>
       )}
@@ -373,11 +453,11 @@ const Notifications = () => {
                             onClick={() => approveDeviceMutation.mutate(device.id)}
                           >
                             <CheckCircle className="w-4 h-4 mr-1" />
-                            {approveDeviceMutation.isPending ? 'Approving…' : 'Approve'}
+                            {approveDeviceMutation.isPending ? 'Approving…' : 'Re-generate Code'}
                           </Button>
                         </div>
 
-                        {/* Location — the key new info */}
+                        {/* Location */}
                         {locationStr && (
                           <div className="flex items-center gap-1.5 text-sm font-medium">
                             <MapPin className="w-4 h-4 shrink-0 text-amber-600" />
@@ -398,6 +478,10 @@ const Notifications = () => {
                             </p>
                           )}
                         </div>
+
+                        <p className="text-xs text-muted-foreground italic">
+                          A code was sent in the notification. Click "Re-generate Code" only if you need a fresh one.
+                        </p>
                       </CardContent>
                     </Card>
                   )
@@ -464,18 +548,19 @@ const Notifications = () => {
         </div>
       )}
 
-      {/* ── Device Approval Code Dialog ─────────────────────────────── */}
+      {/* ── Device Approval Code Dialog (Re-generate flow) ──────────── */}
       <Dialog open={!!approvedDevice} onOpenChange={(open) => !open && setApprovedDevice(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Smartphone className="w-5 h-5" /> Device Approved
+              <Smartphone className="w-5 h-5" /> New Code Generated
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-1">
             <p className="text-sm text-muted-foreground">
-              {approvedDevice?.userName} can now complete login using this code.
+              A fresh code has been generated for {approvedDevice?.userName}.
+              Share it directly with the user.
             </p>
 
             {/* Email status banner */}
