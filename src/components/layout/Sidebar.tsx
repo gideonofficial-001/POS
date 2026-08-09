@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, Building2, PackageSearch, UsersRound,
   ShoppingCart, FileText, RotateCcw, History, BarChart3,
   ClipboardList, Settings, LogOut, Bell, ArrowLeftRight,
-  Receipt, ChevronLeft, ChevronRight, X, Menu, CreditCard
+  Receipt, ChevronLeft, ChevronRight, X, Menu, CreditCard, Smartphone
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -34,7 +34,8 @@ const Sidebar = () => {
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/transfers', icon: ArrowLeftRight, label: 'Transfers' },
-        { path: '/notifications', icon: Bell, label: 'Notifications' },
+        { path: '/admin/devices',   icon: Smartphone,    label: 'Devices' },
+        { path: '/notifications',   icon: Bell,          label: 'Notifications' },
         { path: '/admin/audit-logs', icon: ClipboardList, label: 'Audit Logs' },
         { path: '/settings', icon: Settings, label: 'Settings' },
       )
