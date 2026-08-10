@@ -21,7 +21,6 @@ import {
   Building2,
   Clock,
   CheckCircle2,
-  XCircle,
   ShieldCheck,
   ShieldOff,
   Copy,
@@ -29,6 +28,7 @@ import {
   MailX,
   User,
   Monitor,
+  ExternalLink,
 } from 'lucide-react'
 
 type TabValue = 'pending' | 'all'
@@ -90,17 +90,26 @@ export default function AdminDevices() {
       queryClient.invalidateQueries({ queryKey: ['pending-devices'] })
       queryClient.invalidateQueries({ queryKey: ['devices-all'] })
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
-      const d = response.data
-      setApprovedDevice({
-        code:       d.code,
-        userName:   d.userName,
-        userEmail:  d.userEmail,
-        emailSent:  d.emailSent,
-        emailError: d.emailError ?? null,
-      })
+      const d = response?.data ?? response   // handle both wrapped and unwrapped responses
+      if (d?.code) {
+        setApprovedDevice({
+          code:       d.code,
+          userName:   d.userName  ?? 'User',
+          userEmail:  d.userEmail ?? '',
+          emailSent:  d.emailSent ?? false,
+          emailError: d.emailError ?? null,
+        })
+      } else {
+        // Fallback: device approved but code not returned — show a plain success toast
+        toast.success('Device approved — ask the user to log in again')
+      }
     },
     onError: (err: any) => {
-      toast.error(err.response?.data?.message || 'Failed to approve device')
+      // Device may already be approved in DB (audit log failure) — still invalidate
+      queryClient.invalidateQueries({ queryKey: ['pending-devices'] })
+      queryClient.invalidateQueries({ queryKey: ['devices-all'] })
+      const msg = err.response?.data?.message || 'Approval failed — check if the device is already approved'
+      toast.error(msg)
     },
   })
 
@@ -239,24 +248,52 @@ export default function AdminDevices() {
                     </div>
                   </div>
 
-                  {/* Location — highlighted for pending requests */}
-                  {locationStr && (
-                    <div
-                      className={`flex items-center gap-2 text-sm font-medium rounded-md px-3 py-2 ${
-                        isPending
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-muted text-muted-foreground'
-                      }`}
-                    >
-                      <MapPin className="w-4 h-4 shrink-0" />
-                      <span>
-                        {isPending ? 'Logging in from ' : 'Last login from '}
-                        <span className={isPending ? 'text-amber-900 font-semibold' : ''}>
-                          {locationStr}
+                  {/* Location */}
+                  {(() => {
+                    const hasText = !!locationStr
+                    const hasCoords = device.loginLatitude && device.loginLongitude
+                    const mapsUrl = hasCoords
+                      ? `https://maps.google.com/maps?q=${device.loginLatitude},${device.loginLongitude}`
+                      : null
+
+                    if (!hasText && !hasCoords) return null
+
+                    return (
+                      <div
+                        className={`flex items-center gap-2 text-sm font-medium rounded-md px-3 py-2 ${
+                          isPending
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        <MapPin className="w-4 h-4 shrink-0" />
+                        <span className="flex-1">
+                          {isPending ? 'Logging in from ' : 'Last login from '}
+                          {hasText ? (
+                            <span className={isPending ? 'text-amber-900 font-semibold' : ''}>
+                              {locationStr}
+                            </span>
+                          ) : (
+                            <span className="italic text-muted-foreground">
+                              location name unavailable
+                            </span>
+                          )}
                         </span>
-                      </span>
-                    </div>
-                  )}
+                        {mapsUrl && (
+                          <a
+                            href={mapsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs underline shrink-0 hover:opacity-75"
+                            title="View on Google Maps"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            Map
+                          </a>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   {/* Device details grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-muted-foreground">
