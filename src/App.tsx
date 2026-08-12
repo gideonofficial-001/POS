@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/store'
 import { UserRole } from '@/types'
+import { SplashScreen } from '@/components/SplashScreen'
 
 // Layouts
 import MainLayout from '@/components/layout/MainLayout'
@@ -67,6 +69,34 @@ const RoleRedirect = () => {
 }
 
 function App() {
+  // ── Splash screen (shown once on cold launch) ────────────────────────────
+  const [showSplash, setShowSplash] = useState(true)
+  const [isReady, setIsReady] = useState(false)
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        // Minimum display time — prevents a flash on fast connections
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        setIsReady(true)
+      } catch {
+        setIsReady(true)
+      }
+    }
+    init()
+  }, [])
+
+  if (showSplash) {
+    return (
+      <SplashScreen
+        onComplete={() => {
+          if (isReady) setShowSplash(false)
+        }}
+      />
+    )
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   return (
     <Routes>
       {/* Auth Routes */}
