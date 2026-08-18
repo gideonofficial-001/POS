@@ -168,7 +168,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
 
       {/* Bottom tagline */}
       <p className="absolute bottom-8 text-xs text-white/30 tracking-wider">
-        POWERING KENYA'S BUSINESSES
+        DEVELOPED BY SLEEK(⁠✷⁠‿⁠✷⁠)
       </p>
 
       {/* Keyframe animations */}
