@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { notificationsApi, devicesApi, returnsApi, expensesApi } from '@/api'
 import { useAuthStore } from '@/store'
 import { UserRole } from '@/types'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,26 +10,45 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatRelativeTime, formatCurrency, formatDateTime } from '@/lib/utils'
 import { toast } from 'sonner'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check, Package, Building2, Clock, MapPin, Copy, Mail, MailX, ShieldCheck } from 'lucide-react'
+import {
+  Bell, CheckCircle, Smartphone, RotateCcw, Receipt, Check,
+  Package, Building2, Clock, MapPin, Copy, Mail, MailX,
+  ShieldCheck, Trash2, ArrowRightLeft,
+} from 'lucide-react'
 import { useState } from 'react'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Extract the 6-digit authorization code embedded in a DEVICE_AUTH
- * notification message by the backend (e.g. "… Authorization code: 123456 …").
- * Returns null if no code is found.
- */
 function extractAuthCode(message: string): string | null {
   const match = message.match(/Authorization code:\s*(\d{6})/i)
   return match ? match[1] : null
+}
+
+// Maps notification entityType + type to the correct route
+function getNotificationRoute(notif: any, userRole: string): string | null {
+  const type: string = notif.type ?? ''
+  const entity: string = notif.entityType ?? ''
+
+  if (type.startsWith('TRANSFER_') || entity === 'Transfer') {
+    if (userRole === UserRole.SUPER_ADMIN) return '/admin/transfers'
+    return '/branch/transfers'
+  }
+  if (type.startsWith('RETURN_') || entity === 'Return') {
+    return '/branch/returns'
+  }
+  if (type.startsWith('EXPENSE_') || entity === 'Expense') {
+    return '/branch/expenses'
+  }
+  if (type === 'DEVICE_AUTH' || entity === 'Device') {
+    return '/notifications' // stays on this page — admin handles it here
+  }
+  if (type === 'INVOICE_CREATED' || entity === 'Invoice') {
+    return '/branch/invoices'
+  }
+  return null
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -36,15 +56,14 @@ function extractAuthCode(message: string): string | null {
 const Notifications = () => {
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('notifications')
   const isAdmin = user?.role === UserRole.SUPER_ADMIN
   const isManager = user?.role === UserRole.OVERALL_MANAGER
 
-  // Per-return inline rejection state
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
 
-  // Device approval code dialog (for when admin clicks "Approve" in Pending tab)
   const [approvedDevice, setApprovedDevice] = useState<{
     code: string
     userName: string
@@ -61,8 +80,6 @@ const Notifications = () => {
       const response = await notificationsApi.getAll()
       return response.data
     },
-    // BUG FIX: Poll every 20 s so the admin sees new device requests without
-    // having to manually refresh the page.
     refetchInterval: 20_000,
   })
 
@@ -111,6 +128,15 @@ const Notifications = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => notificationsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      toast.success('Notification deleted')
+    },
+    onError: () => toast.error('Failed to delete notification'),
+  })
+
   const approveDeviceMutation = useMutation({
     mutationFn: (id: string) => devicesApi.approve(id),
     onSuccess: (response: any) => {
@@ -138,7 +164,8 @@ const Notifications = () => {
   })
 
   const rejectReturnMutation = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) => returnsApi.reject(id, reason),
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      returnsApi.reject(id, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-returns'] })
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] })
@@ -170,11 +197,24 @@ const Notifications = () => {
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   const getIcon = (type: string) => {
+    if (type.startsWith('TRANSFER_')) return <ArrowRightLeft className="w-5 h-5" />
     switch (type) {
       case 'DEVICE_AUTH':       return <Smartphone className="w-5 h-5" />
       case 'RETURN_REQUEST':    return <RotateCcw className="w-5 h-5" />
       case 'EXPENSE_SUBMITTED': return <Receipt className="w-5 h-5" />
       default:                  return <Bell className="w-5 h-5" />
+    }
+  }
+
+  const handleNotifClick = (notif: any) => {
+    // Mark as read
+    if (notif.status === 'UNREAD') {
+      markReadMutation.mutate(notif.id)
+    }
+    // Navigate if there's a target page
+    const route = getNotificationRoute(notif, user?.role ?? '')
+    if (route && route !== '/notifications') {
+      navigate(route)
     }
   }
 
@@ -213,30 +253,30 @@ const Notifications = () => {
             </div>
           ) : (
             notifications?.map((notif: any) => {
-              // BUG FIX: For DEVICE_AUTH notifications, extract the pre-generated
-              // code from the message and render it as a copyable chip so the
-              // admin can send it to the user straight from this list.
               const authCode =
-                notif.type === 'DEVICE_AUTH'
-                  ? extractAuthCode(notif.message)
-                  : null
+                notif.type === 'DEVICE_AUTH' ? extractAuthCode(notif.message) : null
+              const route = getNotificationRoute(notif, user?.role ?? '')
+              const isNavigable = route && route !== '/notifications'
 
               return (
                 <Card
                   key={notif.id}
-                  className={
+                  className={`transition-all ${
                     notif.type === 'DEVICE_AUTH'
                       ? 'border-amber-300 bg-amber-50/40'
                       : notif.status === 'UNREAD'
                       ? 'border-primary/50'
                       : ''
-                  }
+                  } ${isNavigable ? 'cursor-pointer hover:shadow-sm' : ''}`}
+                  onClick={() => handleNotifClick(notif)}
                 >
                   <CardContent className="p-4 flex items-start gap-3">
                     <div
                       className={`p-2 rounded-lg shrink-0 ${
                         notif.type === 'DEVICE_AUTH'
                           ? 'bg-amber-100 text-amber-700'
+                          : notif.type.startsWith('TRANSFER_')
+                          ? 'bg-purple-100 text-purple-700'
                           : 'bg-muted'
                       }`}
                     >
@@ -244,12 +284,18 @@ const Notifications = () => {
                     </div>
 
                     <div className="flex-1 min-w-0 space-y-1">
-                      <p className="font-medium">{notif.title}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-medium leading-tight">{notif.title}</p>
+                        {isNavigable && (
+                          <span className="text-xs text-primary shrink-0">View →</span>
+                        )}
+                      </div>
                       <p className="text-sm text-muted-foreground">{notif.message}</p>
 
-                      {/* ── Inline copy button for DEVICE_AUTH codes ── */}
+                      {/* Inline auth code chip */}
                       {authCode && (
-                        <div className="flex items-center gap-2 pt-1">
+                        <div className="flex items-center gap-2 pt-1"
+                          onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-2 bg-white border border-amber-300 rounded-lg px-3 py-1.5">
                             <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
                             <span className="font-mono text-xl font-bold tracking-[0.3em] text-amber-800">
@@ -266,7 +312,7 @@ const Notifications = () => {
                             }}
                           >
                             <Copy className="w-3.5 h-3.5" />
-                            Copy code
+                            Copy
                           </Button>
                         </div>
                       )}
@@ -276,16 +322,31 @@ const Notifications = () => {
                       </p>
                     </div>
 
-                    {notif.status === 'UNREAD' && (
+                    {/* Action buttons — stop propagation so they don't trigger navigation */}
+                    <div className="flex items-center gap-1 shrink-0"
+                      onClick={(e) => e.stopPropagation()}>
+                      {notif.status === 'UNREAD' && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Mark as read"
+                          onClick={() => markReadMutation.mutate(notif.id)}
+                        >
+                          <Check className="w-4 h-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="shrink-0"
-                        onClick={() => markReadMutation.mutate(notif.id)}
+                        className="h-8 w-8 text-muted-foreground hover:text-red-500 hover:bg-red-50"
+                        title="Delete notification"
+                        onClick={() => deleteMutation.mutate(notif.id)}
+                        disabled={deleteMutation.isPending}
                       >
-                        <Check className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" />
                       </Button>
-                    )}
+                    </div>
                   </CardContent>
                 </Card>
               )
@@ -308,7 +369,6 @@ const Notifications = () => {
                 {pendingReturns!.map((ret: any) => (
                   <Card key={ret.id}>
                     <CardContent className="p-4 space-y-3">
-                      {/* Header: code + branch + action buttons */}
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -324,8 +384,7 @@ const Notifications = () => {
                         {rejectingId !== ret.id && (
                           <div className="flex gap-2 shrink-0">
                             <Button
-                              size="sm"
-                              variant="outline"
+                              size="sm" variant="outline"
                               disabled={rejectReturnMutation.isPending || approveReturnMutation.isPending}
                               onClick={() => { setRejectingId(ret.id); setRejectReason('') }}
                             >
@@ -342,16 +401,12 @@ const Notifications = () => {
                         )}
                       </div>
 
-                      {/* Products */}
                       {(ret.sale?.saleItems?.length ?? 0) > 0 && (
                         <div className="flex items-start gap-1.5">
                           <Package className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
                           <div className="flex flex-wrap gap-1">
                             {ret.sale.saleItems.map((item: any) => (
-                              <span
-                                key={item.id}
-                                className="text-xs bg-muted px-2 py-0.5 rounded-full"
-                              >
+                              <span key={item.id} className="text-xs bg-muted px-2 py-0.5 rounded-full">
                                 {item.product?.name} ×{item.quantity}
                               </span>
                             ))}
@@ -359,7 +414,6 @@ const Notifications = () => {
                         </div>
                       )}
 
-                      {/* Reason + refund amount */}
                       <div className="text-sm space-y-0.5">
                         <p><span className="text-muted-foreground">Reason:</span> {ret.reason}</p>
                         <p>
@@ -368,7 +422,6 @@ const Notifications = () => {
                         </p>
                       </div>
 
-                      {/* Footer: who + when */}
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span>By: {ret.user?.firstName} {ret.user?.lastName}</span>
                         <span>·</span>
@@ -378,7 +431,6 @@ const Notifications = () => {
                         </span>
                       </div>
 
-                      {/* Inline rejection input */}
                       {rejectingId === ret.id && (
                         <div className="pt-2 border-t space-y-2">
                           <p className="text-xs font-medium text-destructive">Rejection reason *</p>
@@ -391,9 +443,7 @@ const Notifications = () => {
                               autoFocus
                             />
                             <Button
-                              size="sm"
-                              variant="destructive"
-                              className="shrink-0"
+                              size="sm" variant="destructive" className="shrink-0"
                               disabled={!rejectReason.trim() || rejectReturnMutation.isPending}
                               onClick={() =>
                                 rejectReturnMutation.mutate({ id: ret.id, reason: rejectReason.trim() })
@@ -402,9 +452,7 @@ const Notifications = () => {
                               {rejectReturnMutation.isPending ? 'Rejecting...' : 'Confirm'}
                             </Button>
                             <Button
-                              size="sm"
-                              variant="ghost"
-                              className="shrink-0"
+                              size="sm" variant="ghost" className="shrink-0"
                               onClick={() => { setRejectingId(null); setRejectReason('') }}
                             >
                               Cancel
@@ -433,7 +481,6 @@ const Notifications = () => {
                   return (
                     <Card key={device.id} className="border-amber-200 bg-amber-50/30">
                       <CardContent className="p-4 space-y-3">
-                        {/* Header: name + branch + approve button */}
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold">
@@ -457,7 +504,6 @@ const Notifications = () => {
                           </Button>
                         </div>
 
-                        {/* Location */}
                         {locationStr && (
                           <div className="flex items-center gap-1.5 text-sm font-medium">
                             <MapPin className="w-4 h-4 shrink-0 text-amber-600" />
@@ -465,17 +511,13 @@ const Notifications = () => {
                           </div>
                         )}
 
-                        {/* Device + IP */}
                         <div className="text-xs text-muted-foreground space-y-0.5">
                           <p className="truncate">
                             <span className="font-medium">Device: </span>
                             {device.name || 'Unknown'}
                           </p>
                           {device.loginIpAddress && (
-                            <p>
-                              <span className="font-medium">IP: </span>
-                              {device.loginIpAddress}
-                            </p>
+                            <p><span className="font-medium">IP: </span>{device.loginIpAddress}</p>
                           )}
                         </div>
 
@@ -502,32 +544,20 @@ const Notifications = () => {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium">
-                            {expense.expenseCode} — {expense.category}
-                          </p>
+                          <p className="font-medium">{expense.expenseCode} — {expense.category}</p>
                           <p className="text-sm text-muted-foreground">{expense.description}</p>
                           <p className="text-xs text-muted-foreground">
-                            KES {Number(expense.amount).toLocaleString()} ·{' '}
-                            {expense.branch?.name}
+                            KES {Number(expense.amount).toLocaleString()} · {expense.branch?.name}
                           </p>
                         </div>
                         <div className="flex gap-2">
                           <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              rejectExpenseMutation.mutate({
-                                id: expense.id,
-                                reason: 'Rejected by admin',
-                              })
-                            }
+                            size="sm" variant="outline"
+                            onClick={() => rejectExpenseMutation.mutate({ id: expense.id, reason: 'Rejected by admin' })}
                           >
                             Reject
                           </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => approveExpenseMutation.mutate(expense.id)}
-                          >
+                          <Button size="sm" onClick={() => approveExpenseMutation.mutate(expense.id)}>
                             Approve
                           </Button>
                         </div>
@@ -548,7 +578,7 @@ const Notifications = () => {
         </div>
       )}
 
-      {/* ── Device Approval Code Dialog (Re-generate flow) ──────────── */}
+      {/* ── Device Code Dialog ─────────────────────────────────────── */}
       <Dialog open={!!approvedDevice} onOpenChange={(open) => !open && setApprovedDevice(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -559,11 +589,9 @@ const Notifications = () => {
 
           <div className="space-y-4 py-1">
             <p className="text-sm text-muted-foreground">
-              A fresh code has been generated for {approvedDevice?.userName}.
-              Share it directly with the user.
+              A fresh code has been generated for {approvedDevice?.userName}. Share it directly with the user.
             </p>
 
-            {/* Email status banner */}
             {approvedDevice?.emailSent ? (
               <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
                 <Mail className="w-4 h-4 shrink-0" />
@@ -576,7 +604,6 @@ const Notifications = () => {
               </div>
             )}
 
-            {/* The code */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">6-Digit Authorization Code</Label>
               <div className="flex items-center gap-2">
@@ -586,10 +613,7 @@ const Notifications = () => {
                   </span>
                 </div>
                 <Button
-                  size="icon"
-                  variant="outline"
-                  className="shrink-0"
-                  title="Copy code"
+                  size="icon" variant="outline" className="shrink-0" title="Copy code"
                   onClick={() => {
                     navigator.clipboard.writeText(approvedDevice?.code ?? '')
                     toast.success('Code copied to clipboard')
@@ -605,9 +629,7 @@ const Notifications = () => {
           </div>
 
           <DialogFooter>
-            <Button className="w-full" onClick={() => setApprovedDevice(null)}>
-              Done
-            </Button>
+            <Button className="w-full" onClick={() => setApprovedDevice(null)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
