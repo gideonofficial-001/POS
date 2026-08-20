@@ -18,6 +18,16 @@ const queryClient = new QueryClient({
   },
 })
 
+// ── PWA: Capture install prompt BEFORE React mounts ─────────────────────────
+// The beforeinstallprompt event can fire very early — before any component
+// has a chance to attach a listener. We grab it here and store it globally
+// so InstallPrompt.tsx can pick it up whenever it renders.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  (window as any).__deferredInstallPrompt = e;
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ── PWA: Service Worker registration ────────────────────────────────────────
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
