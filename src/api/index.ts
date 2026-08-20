@@ -182,7 +182,7 @@ export const expensesApi = {
 // any existing pages that haven't been migrated continue to work.
 export const transfersApi = {
   // All transfer routes go through /transfers (old TransfersModule — the working one)
-  getAll: () => api.get('/transfers'),
+  getAll: (params?: any) => api.get('/transfers', { params }),
   getById: (id: string) => api.get(`/transfers/${id}`),
   create: (data: any) => api.post('/transfers', data),
   approveItem: (id: string, itemId: string) =>
