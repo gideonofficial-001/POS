@@ -58,25 +58,26 @@ export enum ExpenseStatus {
   REJECTED = 'REJECTED',
 }
 
+// Fixed: matches backend schema exactly
 export enum TransferStatus {
   PENDING = 'PENDING',
-  APPROVED = 'APPROVED',
-  PARTIALLY_APPROVED = 'PARTIALLY_APPROVED',
-  REJECTED = 'REJECTED',
+  PARTIAL = 'PARTIAL',       // was PARTIALLY_APPROVED
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
 }
 
+// Fixed: matches backend schema exactly
 export enum TransferItemStatus {
   PENDING = 'PENDING',
-  APPROVED = 'APPROVED',
+  ACCEPTED = 'ACCEPTED',     // was APPROVED
   REJECTED = 'REJECTED',
 }
 
+// Transfer item variant — what type of LPG component is being transferred
 export enum TransferItemVariant {
-  STANDARD = 'STANDARD',
-  REFILL = 'REFILL',
-  EMPTY_SHELL = 'EMPTY_SHELL',
+  STANDARD = 'STANDARD',    // non-LPG products
+  REFILL = 'REFILL',        // gas-filled cylinders
+  EMPTY_SHELL = 'EMPTY_SHELL', // empty cylinders
 }
 
 export enum DeviceStatus {
@@ -90,6 +91,8 @@ export enum NotificationType {
   RETURN_REQUEST = 'RETURN_REQUEST',
   INVOICE_CREATED = 'INVOICE_CREATED',
   TRANSFER_REQUEST = 'TRANSFER_REQUEST',
+  TRANSFER_SENT = 'TRANSFER_SENT',
+  TRANSFER_RESPONSE = 'TRANSFER_RESPONSE',
   EXPENSE_SUBMITTED = 'EXPENSE_SUBMITTED',
   TRANSFER_APPROVED = 'TRANSFER_APPROVED',
   TRANSFER_REJECTED = 'TRANSFER_REJECTED',
@@ -148,6 +151,7 @@ export interface Product {
   categoryId?: string
   category?: ProductCategory
   price: number
+  emptyPrice?: number
   costPrice?: number
   cylinderSize?: string
   brand?: string
@@ -179,16 +183,15 @@ export interface Inventory {
 
 export interface Customer {
   id: string
-  customerCode: string
-  fullName: string
+  name: string
   phone: string
   email?: string
-  businessName?: string
   address?: string
+  notes?: string
   creditLimit: number
-  outstandingBalance: number
+  creditUsed: number
+  totalPurchases: number
   isActive: boolean
-  isInvoiceEligible: boolean
 }
 
 export interface Sale {
@@ -202,13 +205,10 @@ export interface Sale {
   customer?: Customer
   type: SaleType
   status: SaleStatus
-  customerName?: string
-  customerPhone?: string
   subtotal: number
-  tax: number
   discount: number
   total: number
-  items: SaleItem[]
+  saleItems: SaleItem[]
   createdAt: string
 }
 
@@ -219,7 +219,7 @@ export interface SaleItem {
   quantity: number
   unitPrice: number
   total: number
-  isRefill: boolean
+  lpgVariant?: string
 }
 
 export interface Invoice {
@@ -227,14 +227,18 @@ export interface Invoice {
   invoiceCode: string
   branchId: string
   branch?: Branch
-  customerId?: string
+  customerId: string
   customer?: Customer
-  customerName: string
-  customerPhone: string
-  customerEmail?: string
-  amount: number
+  saleId?: string
+  subtotal: number
+  discount: number
+  total: number
+  amountPaid: number
+  balance: number
   status: InvoiceStatus
-  dueDate: string
+  dueDate?: string
+  paidAt?: string
+  notes?: string
   createdAt: string
 }
 
@@ -246,7 +250,7 @@ export interface Return {
   userId: string
   user?: User
   reason: string
-  amount: number
+  refundAmount: number
   status: ReturnStatus
   approvedById?: string
   approvedBy?: User
@@ -276,20 +280,18 @@ export interface Expense {
 
 export interface Transfer {
   id: string
-  transferCode: string
+  transferCode?: string          // kept in DB for audit, not shown in UI
   fromBranchId: string
-  fromBranch?: Branch
+  fromBranch: Branch
   toBranchId: string
-  toBranch?: Branch
-  initiatedBy: string
-  initiator?: User
-  approvedById?: string
-  approvedBy?: User
+  toBranch: Branch
+  requestedById: string
+  requestedBy: { id: string; firstName: string; lastName: string }
   status: TransferStatus
   items: TransferItem[]
   notes?: string
-  rejectionReason?: string
   createdAt: string
+  respondedAt?: string
 }
 
 export interface TransferItem {
@@ -297,9 +299,9 @@ export interface TransferItem {
   productId: string
   product: Product
   quantity: number
-  variant: TransferItemVariant
+  variant?: TransferItemVariant   // STANDARD | REFILL | EMPTY_SHELL
   status: TransferItemStatus
-  rejectionReason?: string
+  notes?: string
 }
 
 export interface Device {
@@ -307,13 +309,11 @@ export interface Device {
   userId: string
   user?: User
   fingerprint: string
-  deviceInfo: string
-  ipAddress: string
+  name?: string
   status: DeviceStatus
   approvedById?: string
   approvedBy?: User
-  approvedAt?: string
-  lastUsedAt: string
+  lastUsedAt?: string
   createdAt: string
 }
 
@@ -332,15 +332,13 @@ export interface Notification {
 
 export interface ActivityFeedItem {
   id: string
-  actorId?: string
-  actorName?: string
+  type: string
   branchId?: string
-  branchName?: string
   title: string
   message: string
   entityId?: string
   entityType?: string
-  actionUrl?: string
+  visibleToBranch: boolean
   createdAt: string
 }
 
@@ -369,12 +367,8 @@ export interface CartItem {
 export interface StockMovement {
   id: string
   inventoryId: string
-  productId: string
-  branchId: string
-  quantityBefore: number
-  quantityChanged: number
-  quantityAfter: number
-  movementType: MovementType
+  type: MovementType
+  quantity: number
   referenceId?: string
   referenceType?: string
   performedById?: string
