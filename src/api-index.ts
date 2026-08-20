@@ -181,32 +181,18 @@ export const expensesApi = {
 // The old /transfers/* routes (TransfersModule) are kept as `legacy*` so
 // any existing pages that haven't been migrated continue to work.
 export const transfersApi = {
-  // v2 — used by the new TransfersPage, CreateTransferModal, TransferDetailModal
-  getAll: (params?: any) => api.get('/inventory/transfers', { params }),
-  getById: (id: string) => api.get(`/inventory/transfers/${id}`),
-  create: (data: any) => api.post('/inventory/transfers', data),
-  /**
-   * Respond to one or more items individually.
-   * Can be called multiple times — items with status !== PENDING are rejected by
-   * the backend with a clear error.
-   */
-  respond: (
-    transferId: string,
-    items: { itemId: string; status: 'ACCEPTED' | 'REJECTED'; notes?: string }[],
-  ) => api.post(`/inventory/transfers/${transferId}/respond`, { items }),
-  cancel: (id: string) => api.post(`/inventory/transfers/${id}/cancel`),
-
-  // Legacy v1 — kept for existing Transfers.tsx page
-  legacyGetAll: (params?: any) => api.get('/transfers', { params }),
-  legacyGetById: (id: string) => api.get(`/transfers/${id}`),
-  legacyCreate: (data: any) => api.post('/transfers', data),
-  legacyApprove: (id: string) => api.patch(`/transfers/${id}/approve`),
-  legacyReject: (id: string, rejectionReason: string) =>
-    api.patch(`/transfers/${id}/reject`, { rejectionReason }),
+  // All transfer routes go through /transfers (old TransfersModule — the working one)
+  getAll: () => api.get('/transfers'),
+  getById: (id: string) => api.get(`/transfers/${id}`),
+  create: (data: any) => api.post('/transfers', data),
   approveItem: (id: string, itemId: string) =>
     api.patch(`/transfers/${id}/items/${itemId}/approve`),
   rejectItem: (id: string, itemId: string, rejectionReason: string) =>
     api.patch(`/transfers/${id}/items/${itemId}/reject`, { rejectionReason }),
+  approve: (id: string) => api.patch(`/transfers/${id}/approve`),
+  reject: (id: string, rejectionReason: string) =>
+    api.patch(`/transfers/${id}/reject`, { rejectionReason }),
+  cancel: (id: string) => api.patch(`/transfers/${id}/cancel`),
 }
 
 // ── Devices ───────────────────────────────────────────────────────────────────
@@ -224,6 +210,7 @@ export const notificationsApi = {
   getPendingApprovals: () => api.get('/notifications/pending-approvals'),
   markAsRead: (id: string) => api.post(`/notifications/${id}/read`),
   markAllAsRead: () => api.post('/notifications/read-all'),
+  delete: (id: string) => api.delete(`/notifications/${id}`),
 }
 
 // ── Audit Logs ────────────────────────────────────────────────────────────────
