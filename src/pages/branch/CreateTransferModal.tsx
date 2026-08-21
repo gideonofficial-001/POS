@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '@/api';
 import { useAuthStore } from '@/store';
@@ -75,7 +76,7 @@ function ProductPicker({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-4">
+    {createPortal(<div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/50 p-4">
       <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh]">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b shrink-0">
@@ -163,7 +164,7 @@ function ProductPicker({
           )}
         </div>
       </div>
-    </div>
+    </div>, document.body)}
   );
 }
 
