@@ -1,15 +1,17 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '@/api';
 import { useAuthStore } from '@/store';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import {
   Plus, Trash2, Package, AlertCircle, Search,
@@ -36,79 +38,114 @@ interface InventoryItem {
 type Variant = 'STANDARD' | 'REFILL' | 'EMPTY_SHELL';
 
 interface TransferItemForm {
-  uid: string;           // local key only
+  uid: string;
   productId: string;
   quantity: number;
   variant: Variant;
 }
 
-// ── Product Picker ──────────────────────────────────────────────────────────
+// ── Product Picker Portal ─────────────────────────────────────────────────────
+// Rendered via createPortal to document.body so Radix's pointer-events:none
+// on the body (set by Dialog) cannot block it.
 
 function ProductPicker({
   inventory,
-  selectedProductIds,
   onSelect,
   onClose,
 }: {
   inventory: InventoryItem[];
-  selectedProductIds: string[];
   onSelect: (inv: InventoryItem) => void;
   onClose: () => void;
 }) {
   const [search, setSearch] = useState('');
 
+  // Prevent background scroll while picker is open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return inventory.filter((inv) =>
       inv.product.name.toLowerCase().includes(q) ||
-      inv.product.brand?.toLowerCase().includes(q) ||
-      inv.product.cylinderSize?.toLowerCase().includes(q),
+      (inv.product.brand?.toLowerCase() ?? '').includes(q) ||
+      (inv.product.cylinderSize?.toLowerCase() ?? '').includes(q),
     );
   }, [inventory, search]);
 
-  const getStockBadge = (inv: InventoryItem) => {
+  const getStockInfo = (inv: InventoryItem) => {
     const available = inv.product.isCylinderTracked && inv.fullCylinders != null
       ? inv.fullCylinders
       : inv.quantity;
-    if (available <= 0)  return { label: 'Out of stock', class: 'bg-red-100 text-red-700' };
-    if (available <= 5)  return { label: `${available} left`, class: 'bg-amber-100 text-amber-700' };
-    return { label: `${available} in stock`, class: 'bg-green-100 text-green-700' };
+    if (available <= 0)
+      return { label: 'Out of stock', cls: 'bg-red-100 text-red-700' };
+    if (available <= 5)
+      return { label: `${available} left`, cls: 'bg-amber-100 text-amber-700' };
+    return { label: `${available} in stock`, cls: 'bg-green-100 text-green-700' };
   };
 
-  return createPortal(<div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/50 p-4">
-      <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh]">
+  const picker = (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 99999,
+               display: 'flex', alignItems: 'flex-end',
+               justifyContent: 'center', padding: '1rem',
+               backgroundColor: 'rgba(0,0,0,0.55)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        style={{ background: 'white', borderRadius: '1rem', width: '100%',
+                 maxWidth: '32rem', display: 'flex', flexDirection: 'column',
+                 maxHeight: '85vh', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b shrink-0">
-          <h3 className="font-semibold">Select Product</h3>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '1rem', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
+          <h3 style={{ fontWeight: 600, fontSize: '1rem', margin: 0 }}>Select Product</h3>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', cursor: 'pointer',
+                     padding: '0.25rem', borderRadius: '0.5rem', display: 'flex' }}
+          >
+            <X size={20} />
+          </button>
         </div>
 
         {/* Search */}
-        <div className="p-3 border-b shrink-0">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-9"
+        <div style={{ padding: '0.75rem', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: '0.75rem',
+                                        top: '50%', transform: 'translateY(-50%)',
+                                        color: '#9ca3af', pointerEvents: 'none' }} />
+            <input
+              type="text"
               placeholder="Search by name, brand, size..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               autoFocus
+              style={{
+                width: '100%', paddingLeft: '2.25rem', paddingRight: '0.75rem',
+                paddingTop: '0.5rem', paddingBottom: '0.5rem',
+                border: '1px solid #d1d5db', borderRadius: '0.5rem',
+                fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box',
+              }}
             />
           </div>
         </div>
 
-        {/* Grid */}
-        <div className="overflow-y-auto p-3 flex-1">
+        {/* Scrollable grid */}
+        <div style={{ overflowY: 'auto', padding: '0.75rem', flex: 1,
+                      WebkitOverflowScrolling: 'touch' }}>
           {filtered.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">
+            <p style={{ textAlign: 'center', color: '#6b7280', fontSize: '0.875rem',
+                        padding: '2rem 0' }}>
               No products match "{search}"
-            </div>
+            </p>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               {filtered.map((inv) => {
-                const stock = getStockBadge(inv);
+                const stock = getStockInfo(inv);
                 const isLpg = inv.product.isCylinderTracked;
                 const isOutOfStock = inv.quantity <= 0;
 
@@ -118,42 +155,51 @@ function ProductPicker({
                     type="button"
                     disabled={isOutOfStock}
                     onClick={() => { onSelect(inv); onClose(); }}
-                    className={`
-                      text-left rounded-xl border p-3 space-y-2 transition-all
-                      ${isOutOfStock
-                        ? 'opacity-40 cursor-not-allowed border-gray-100 bg-gray-50'
-                        : 'hover:border-primary hover:shadow-sm hover:bg-primary/5 cursor-pointer border-border bg-card'
-                      }
-                    `}
+                    style={{
+                      textAlign: 'left', borderRadius: '0.75rem',
+                      border: '1.5px solid #e5e7eb', padding: '0.75rem',
+                      background: isOutOfStock ? '#f9fafb' : 'white',
+                      opacity: isOutOfStock ? 0.5 : 1,
+                      cursor: isOutOfStock ? 'not-allowed' : 'pointer',
+                      display: 'flex', flexDirection: 'column', gap: '0.5rem',
+                      transition: 'border-color 0.15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isOutOfStock)
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = '#6366f1';
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = '#e5e7eb';
+                    }}
                   >
-                    {/* Product icon + name */}
-                    <div className="flex items-start gap-2">
-                      <div className={`p-1.5 rounded-lg shrink-0 ${isLpg ? 'bg-orange-100' : 'bg-blue-100'}`}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                      <div style={{
+                        padding: '0.375rem', borderRadius: '0.5rem', flexShrink: 0,
+                        background: isLpg ? '#fff7ed' : '#eff6ff',
+                      }}>
                         {isLpg
-                          ? <Flame className="h-4 w-4 text-orange-600" />
-                          : <Package className="h-4 w-4 text-blue-600" />
-                        }
+                          ? <Flame size={16} style={{ color: '#ea580c' }} />
+                          : <Package size={16} style={{ color: '#2563eb' }} />}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm leading-tight line-clamp-2">
-                          {inv.product.name}
-                        </p>
-                        {inv.product.cylinderSize && (
-                          <p className="text-xs text-muted-foreground">{inv.product.cylinderSize}</p>
-                        )}
-                      </div>
+                      <p style={{ fontWeight: 500, fontSize: '0.8125rem',
+                                  lineHeight: 1.3, margin: 0, wordBreak: 'break-word' }}>
+                        {inv.product.name}
+                      </p>
                     </div>
 
-                    {/* Stock badge */}
-                    <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${stock.class}`}>
+                    <span style={{
+                      display: 'inline-block', fontSize: '0.6875rem', fontWeight: 600,
+                      padding: '0.125rem 0.5rem', borderRadius: '9999px',
+                    }}
+                      className={stock.cls}
+                    >
                       {stock.label}
                     </span>
 
-                    {/* LPG breakdown if applicable */}
                     {isLpg && inv.fullCylinders != null && (
-                      <div className="text-xs text-muted-foreground space-y-0.5">
-                        <p>Full: {inv.fullCylinders}</p>
-                        <p>Empty: {inv.quantity - inv.fullCylinders}</p>
+                      <div style={{ fontSize: '0.75rem', color: '#6b7280', lineHeight: 1.4 }}>
+                        <p style={{ margin: 0 }}>Full: {inv.fullCylinders}</p>
+                        <p style={{ margin: 0 }}>Empty: {inv.quantity - inv.fullCylinders}</p>
                       </div>
                     )}
                   </button>
@@ -163,10 +209,14 @@ function ProductPicker({
           )}
         </div>
       </div>
-    </div>, document.body);
+    </div>
+  );
+
+  return createPortal(picker, document.body);
 }
 
-// ── Main Modal ──────────────────────────────────────────────────────────────
+// ── Main Modal ────────────────────────────────────────────────────────────────
+// Uses a plain div overlay (NOT shadcn Dialog) so Radix never touches pointer-events.
 
 export function CreateTransferModal({
   onClose,
@@ -180,7 +230,13 @@ export function CreateTransferModal({
   const [items, setItems] = useState<TransferItemForm[]>([]);
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [pickerFor, setPickerFor] = useState<string | null>(null); // uid of item being picked
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+
+  // Lock body scroll while modal is open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
 
   const { data: branches } = useQuery({
     queryKey: ['branches'],
@@ -215,11 +271,10 @@ export function CreateTransferModal({
   const addItem = () => {
     const uid = crypto.randomUUID();
     setItems((prev) => [...prev, { uid, productId: '', quantity: 1, variant: 'STANDARD' }]);
-    setPickerFor(uid); // open picker immediately
+    setPickerFor(uid);
   };
 
-  const removeItem = (uid: string) =>
-    setItems((prev) => prev.filter((i) => i.uid !== uid));
+  const removeItem = (uid: string) => setItems((prev) => prev.filter((i) => i.uid !== uid));
 
   const updateItem = (uid: string, updates: Partial<TransferItemForm>) =>
     setItems((prev) => prev.map((i) => (i.uid === uid ? { ...i, ...updates } : i)));
@@ -238,22 +293,16 @@ export function CreateTransferModal({
     return inv.quantity;
   };
 
-  const isLpgProduct = (productId: string) =>
-    getInventoryItem(productId)?.product.isCylinderTracked ?? false;
-
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
     if (!toBranchId) errs.toBranch = 'Please select a destination branch';
     if (items.length === 0) errs.items = 'Add at least one item';
-
     items.forEach((item, idx) => {
       if (!item.productId) { errs[`${idx}_product`] = 'Select a product'; return; }
       if (item.quantity < 1) errs[`${idx}_qty`] = 'Quantity must be at least 1';
       const max = getMaxQty(item.productId, item.variant);
-      if (item.quantity > max)
-        errs[`${idx}_qty`] = `Only ${max} available`;
+      if (item.quantity > max) errs[`${idx}_qty`] = `Only ${max} available`;
     });
-
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -272,21 +321,45 @@ export function CreateTransferModal({
     });
   };
 
-  const activePickerInventory = inventory; // show all; picker handles filtering
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9998,
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        style={{
+          background: 'white', borderRadius: '1rem 1rem 0 0',
+          width: '100%', maxWidth: '42rem',
+          maxHeight: '92vh', display: 'flex', flexDirection: 'column',
+          boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '1rem 1.25rem', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Package size={20} />
+            <h2 style={{ fontWeight: 700, fontSize: '1.125rem', margin: 0 }}>Create New Transfer</h2>
+          </div>
+          <button onClick={onClose}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem',
+                     borderRadius: '0.5rem', display: 'flex', color: '#6b7280' }}>
+            <X size={22} />
+          </button>
+        </div>
 
-  return (
-    <>
-      <Dialog open onOpenChange={onClose}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5" /> Create New Transfer
-            </DialogTitle>
-          </DialogHeader>
+        {/* Body — scrollable */}
+        <div style={{ overflowY: 'auto', padding: '1.25rem',
+                      flex: 1, WebkitOverflowScrolling: 'touch' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          <div className="space-y-6">
-            {/* Destination branch */}
-            <div className="space-y-2">
+            {/* To Branch */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
               <Label>To Branch</Label>
               <Select value={toBranchId} onValueChange={setToBranchId}>
                 <SelectTrigger className={errors.toBranch ? 'border-red-500' : ''}>
@@ -299,117 +372,137 @@ export function CreateTransferModal({
                 </SelectContent>
               </Select>
               {errors.toBranch && (
-                <p className="text-xs text-red-500 flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" />{errors.toBranch}
+                <p style={{ color: '#ef4444', fontSize: '0.75rem', display: 'flex',
+                            alignItems: 'center', gap: '0.25rem', margin: 0 }}>
+                  <AlertCircle size={12} />{errors.toBranch}
                 </p>
               )}
             </div>
 
             {/* Items */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Label>Items</Label>
                 <Button type="button" size="sm" variant="outline" onClick={addItem}>
-                  <Plus className="h-4 w-4 mr-1" /> Add Item
+                  <Plus size={14} style={{ marginRight: '0.25rem' }} /> Add Item
                 </Button>
               </div>
 
               {errors.items && (
-                <p className="text-xs text-red-500 flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" />{errors.items}
+                <p style={{ color: '#ef4444', fontSize: '0.75rem', display: 'flex',
+                            alignItems: 'center', gap: '0.25rem', margin: 0 }}>
+                  <AlertCircle size={12} />{errors.items}
                 </p>
               )}
 
               {items.length === 0 && (
-                <div className="text-center py-8 border-2 border-dashed rounded-lg text-muted-foreground">
-                  <Package className="mx-auto h-8 w-8 mb-2 opacity-40" />
-                  <p className="text-sm">No items yet — click Add Item</p>
+                <div style={{ textAlign: 'center', padding: '2rem',
+                              border: '2px dashed #d1d5db', borderRadius: '0.75rem',
+                              color: '#6b7280' }}>
+                  <Package size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.4 }} />
+                  <p style={{ margin: 0, fontSize: '0.875rem' }}>No items yet — click Add Item</p>
                 </div>
               )}
 
               {items.map((item, idx) => {
                 const inv = getInventoryItem(item.productId);
-                const isLpg = isLpgProduct(item.productId);
+                const isLpg = inv?.product.isCylinderTracked ?? false;
                 const maxQty = getMaxQty(item.productId, item.variant);
 
                 return (
-                  <div key={item.uid} className="border rounded-xl p-4 space-y-3 bg-muted/30">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <div key={item.uid}
+                    style={{ border: '1.5px solid #e5e7eb', borderRadius: '0.75rem',
+                             padding: '1rem', display: 'flex', flexDirection: 'column',
+                             gap: '0.75rem', background: '#f9fafb' }}>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600,
+                                     color: '#6b7280', textTransform: 'uppercase',
+                                     letterSpacing: '0.05em' }}>
                         Item {idx + 1}
                       </span>
-                      <Button
-                        type="button" size="icon" variant="ghost"
-                        className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
-                        onClick={() => removeItem(item.uid)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <button onClick={() => removeItem(item.uid)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer',
+                                 color: '#ef4444', padding: '0.25rem', borderRadius: '0.375rem',
+                                 display: 'flex' }}>
+                        <Trash2 size={16} />
+                      </button>
                     </div>
 
-                    {/* Product selector — tap to open grid picker */}
-                    <div className="space-y-1">
-                      <Label className="text-xs">Product</Label>
+                    {/* Product selector button */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      <Label style={{ fontSize: '0.75rem' }}>Product</Label>
                       <button
                         type="button"
                         onClick={() => setPickerFor(item.uid)}
-                        className={`
-                          w-full flex items-center justify-between rounded-lg border px-3 py-2.5 text-sm
-                          hover:border-primary hover:bg-primary/5 transition-colors text-left
-                          ${errors[`${idx}_product`] ? 'border-red-500' : 'border-input'}
-                        `}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '0.625rem 0.75rem', borderRadius: '0.5rem',
+                          border: `1.5px solid ${errors[`${idx}_product`] ? '#ef4444' : '#d1d5db'}`,
+                          background: 'white', cursor: 'pointer', fontSize: '0.875rem',
+                          textAlign: 'left', width: '100%',
+                        }}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
                           {inv ? (
                             <>
-                              {inv.product.isCylinderTracked && (
-                                <Flame className="h-4 w-4 text-orange-500 shrink-0" />
-                              )}
-                              <span className="truncate font-medium">{inv.product.name}</span>
-                              {inv.product.isCylinderTracked && (
-                                <Badge className="text-xs bg-green-100 text-green-700 shrink-0">
+                              {inv.product.isCylinderTracked &&
+                                <Flame size={15} style={{ color: '#ea580c', flexShrink: 0 }} />}
+                              <span style={{ fontWeight: 500, overflow: 'hidden',
+                                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {inv.product.name}
+                              </span>
+                              {maxQty > 0 && (
+                                <span style={{ fontSize: '0.7rem', background: '#dcfce7',
+                                               color: '#15803d', padding: '0.125rem 0.375rem',
+                                               borderRadius: '9999px', flexShrink: 0, fontWeight: 600 }}>
                                   {maxQty} avail.
-                                </Badge>
+                                </span>
                               )}
                             </>
                           ) : (
-                            <span className="text-muted-foreground">Select product...</span>
+                            <span style={{ color: '#9ca3af' }}>Select product...</span>
                           )}
                         </div>
-                        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <ChevronDown size={16} style={{ color: '#9ca3af', flexShrink: 0 }} />
                       </button>
                       {errors[`${idx}_product`] && (
-                        <p className="text-xs text-red-500">{errors[`${idx}_product`]}</p>
+                        <p style={{ color: '#ef4444', fontSize: '0.75rem', margin: 0 }}>
+                          {errors[`${idx}_product`]}
+                        </p>
                       )}
                     </div>
 
-                    {/* Variant selector — only shown for LPG products */}
+                    {/* Variant selector — LPG only */}
                     {isLpg && item.productId && (
-                      <div className="space-y-1">
-                        <Label className="text-xs">Type</Label>
-                        <div className="grid grid-cols-2 gap-2">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <Label style={{ fontSize: '0.75rem' }}>Type</Label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                           {([
-                            { value: 'REFILL',      label: 'Refill (Full)',  avail: inv?.fullCylinders ?? 0 },
-                            { value: 'EMPTY_SHELL', label: 'Empty Shell',    avail: inv && inv.fullCylinders != null ? inv.quantity - inv.fullCylinders : 0 },
-                          ] as const).map(({ value, label, avail }) => (
-                            <button
-                              key={value}
-                              type="button"
+                            { value: 'REFILL' as Variant, label: 'Refill (Full)',
+                              avail: inv?.fullCylinders ?? 0 },
+                            { value: 'EMPTY_SHELL' as Variant, label: 'Empty Shell',
+                              avail: inv && inv.fullCylinders != null
+                                ? inv.quantity - inv.fullCylinders : 0 },
+                          ]).map(({ value, label, avail }) => (
+                            <button key={value} type="button"
                               onClick={() => updateItem(item.uid, { variant: value, quantity: 1 })}
-                              className={`
-                                flex flex-col items-start rounded-lg border p-3 text-sm transition-all
-                                ${item.variant === value
-                                  ? 'border-primary bg-primary/10 text-primary'
-                                  : 'border-border hover:border-primary/50'
-                                }
-                              `}
-                            >
-                              <span className="font-medium">{label}</span>
-                              <span className="text-xs text-muted-foreground mt-0.5">
+                              style={{
+                                padding: '0.625rem 0.75rem', borderRadius: '0.625rem',
+                                border: `2px solid ${item.variant === value ? '#6366f1' : '#e5e7eb'}`,
+                                background: item.variant === value ? '#eef2ff' : 'white',
+                                cursor: 'pointer', textAlign: 'left',
+                                display: 'flex', flexDirection: 'column', gap: '0.125rem',
+                              }}>
+                              <span style={{ fontWeight: 600, fontSize: '0.8125rem',
+                                             color: item.variant === value ? '#4f46e5' : '#374151' }}>
+                                {label}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>
                                 {avail} available
                               </span>
                               {item.variant === value && (
-                                <CheckCircle2 className="h-3.5 w-3.5 mt-1 text-primary" />
+                                <CheckCircle2 size={13} style={{ color: '#4f46e5', marginTop: '0.125rem' }} />
                               )}
                             </button>
                           ))}
@@ -419,25 +512,21 @@ export function CreateTransferModal({
 
                     {/* Quantity */}
                     {item.productId && (
-                      <div className="space-y-1">
-                        <Label className="text-xs">
-                          Quantity
-                          {maxQty > 0 && (
-                            <span className="text-muted-foreground ml-1">(max {maxQty})</span>
-                          )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <Label style={{ fontSize: '0.75rem' }}>
+                          Quantity {maxQty > 0 && <span style={{ color: '#9ca3af' }}>(max {maxQty})</span>}
                         </Label>
                         <Input
-                          type="number"
-                          min={1}
-                          max={maxQty || undefined}
+                          type="number" min={1} max={maxQty || undefined}
                           value={item.quantity}
                           onChange={(e) =>
-                            updateItem(item.uid, { quantity: parseInt(e.target.value) || 1 })
-                          }
+                            updateItem(item.uid, { quantity: parseInt(e.target.value) || 1 })}
                           className={errors[`${idx}_qty`] ? 'border-red-500' : ''}
                         />
                         {errors[`${idx}_qty`] && (
-                          <p className="text-xs text-red-500">{errors[`${idx}_qty`]}</p>
+                          <p style={{ color: '#ef4444', fontSize: '0.75rem', margin: 0 }}>
+                            {errors[`${idx}_qty`]}
+                          </p>
                         )}
                       </div>
                     )}
@@ -446,35 +535,37 @@ export function CreateTransferModal({
               })}
             </div>
 
-            {/* Transfer-level notes */}
-            <div className="space-y-2">
+            {/* Notes */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
               <Label>Notes (optional)</Label>
               <Textarea
                 placeholder="Any notes for the receiving branch..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="min-h-[80px]"
+                style={{ minHeight: '5rem' }}
               />
             </div>
           </div>
+        </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={createMutation.isPending || items.length === 0}
-            >
-              {createMutation.isPending ? 'Creating...' : 'Create Transfer'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {/* Footer */}
+        <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid #e5e7eb',
+                      display: 'flex', gap: '0.75rem', justifyContent: 'flex-end',
+                      flexShrink: 0 }}>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={createMutation.isPending || items.length === 0}
+          >
+            {createMutation.isPending ? 'Creating...' : 'Create Transfer'}
+          </Button>
+        </div>
+      </div>
 
-      {/* Product picker overlay */}
+      {/* Product picker — separate portal layer on top */}
       {pickerFor && (
         <ProductPicker
-          inventory={activePickerInventory}
-          selectedProductIds={items.map((i) => i.productId).filter(Boolean)}
+          inventory={inventory}
           onSelect={(inv) => {
             const isLpg = inv.product.isCylinderTracked;
             updateItem(pickerFor, {
@@ -482,11 +573,13 @@ export function CreateTransferModal({
               quantity: 1,
               variant: isLpg ? 'REFILL' : 'STANDARD',
             });
+            setPickerFor(null);
           }}
           onClose={() => setPickerFor(null)}
         />
       )}
-    </>
+    </div>,
+    document.body,
   );
 }
 
