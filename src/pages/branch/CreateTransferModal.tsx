@@ -75,8 +75,7 @@ function ProductPicker({
     return { label: `${available} in stock`, class: 'bg-green-100 text-green-700' };
   };
 
-  return (
-    {createPortal(<div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/50 p-4">
+  return createPortal(<div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/50 p-4">
       <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh]">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b shrink-0">
@@ -164,8 +163,7 @@ function ProductPicker({
           )}
         </div>
       </div>
-    </div>, document.body)}
-  );
+    </div>, document.body);
 }
 
 // ── Main Modal ──────────────────────────────────────────────────────────────
