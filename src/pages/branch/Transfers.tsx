@@ -1,0 +1,753 @@
+import { useMemo, useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { transfersApi, branchesApi, inventoryApi } from '@/api'
+import { useAuthStore } from '@/store'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { formatDate, formatDateTime } from '@/lib/utils'
+import { toast } from 'sonner'
+import {
+  ArrowLeftRight,
+  Plus,
+  Package,
+  AlertTriangle,
+  RefreshCw,
+  Check,
+  X,
+  Search,
+  Inbox,
+} from 'lucide-react'
+
+// Pulls a human-readable message out of an API error, whether it's a single
+// string (most errors) or an array of strings (class-validator messages).
+function getErrorMessage(error: any, fallback: string): string {
+  const message = error?.response?.data?.message
+  if (Array.isArray(message)) return message.join(' ')
+  if (typeof message === 'string' && message.trim()) return message
+  if (typeof error?.message === 'string' && error.message.trim()) return error.message
+  return fallback
+}
+
+const ErrorBanner = ({ message, onRetry }: { message: string; onRetry?: () => void }) => (
+  <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+    <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
+    <div className="flex-1">{message}</div>
+    {onRetry && (
+      <Button variant="outline" size="sm" onClick={onRetry} className="shrink-0 border-destructive/30">
+        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+        Retry
+      </Button>
+    )}
+  </div>
+)
+
+const STATUS_OPTIONS = ['ALL', 'PENDING', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED', 'COMPLETED', 'CANCELLED']
+
+type DraftItem = { productId: string; variant: 'STANDARD' | 'REFILL' | 'EMPTY_SHELL'; quantity: number }
+
+function variantLabel(variant: string): string | null {
+  if (variant === 'REFILL') return 'Refill'
+  if (variant === 'EMPTY_SHELL') return 'Empty Shell'
+  return null
+}
+
+function getAvailableStock(inv: any, variant: string): number {
+  if (variant === 'REFILL') return inv.fullCylinders ?? 0
+  if (variant === 'EMPTY_SHELL') return inv.emptyCylinders ?? (inv.quantity - (inv.fullCylinders ?? 0))
+  return inv.quantity
+}
+
+const getStatusBadge = (status: string) => {
+  switch (status) {
+    case 'APPROVED':
+    case 'COMPLETED':
+      return <Badge variant="success">{status === 'COMPLETED' ? 'Completed' : 'Approved'}</Badge>
+    case 'PARTIALLY_APPROVED':
+      return <Badge variant="warning">Partially Approved</Badge>
+    case 'PENDING':
+      return <Badge variant="warning">Pending</Badge>
+    case 'REJECTED':
+      return <Badge variant="destructive">Rejected</Badge>
+    case 'CANCELLED':
+      return <Badge variant="secondary">Cancelled</Badge>
+    default:
+      return <Badge>{status}</Badge>
+  }
+}
+
+const getItemStatusBadge = (status: string) => {
+  switch (status) {
+    case 'APPROVED':
+      return <Badge variant="success" className="text-[10px]">Approved</Badge>
+    case 'REJECTED':
+      return <Badge variant="destructive" className="text-[10px]">Rejected</Badge>
+    default:
+      return <Badge variant="warning" className="text-[10px]">Pending</Badge>
+  }
+}
+
+const Transfers = () => {
+  const { user } = useAuthStore()
+  const queryClient = useQueryClient()
+
+  const [direction, setDirection] = useState<'outgoing' | 'incoming'>('outgoing')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [search, setSearch] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const [showCreate, setShowCreate] = useState(false)
+  const [toBranchId, setToBranchId] = useState('')
+  const [notes, setNotes] = useState('')
+  const [productSearch, setProductSearch] = useState('')
+  const [transferItems, setTransferItems] = useState<DraftItem[]>([])
+
+  const [viewTransfer, setViewTransfer] = useState<any>(null)
+  const [rejectTarget, setRejectTarget] = useState<{ transferId: string; itemId: string; label: string } | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+
+  const statusParam = statusFilter === 'ALL' ? undefined : statusFilter
+
+  const {
+    data: outgoing,
+    isLoading: outgoingLoading,
+    isError: outgoingError,
+    error: outgoingErrorObj,
+    refetch: refetchOutgoing,
+  } = useQuery({
+    queryKey: ['transfers', 'outgoing', user?.branchId, statusParam],
+    queryFn: async () => {
+      const response = await transfersApi.getAll({ fromBranchId: user?.branchId, status: statusParam })
+      return response.data
+    },
+    enabled: !!user?.branchId,
+  })
+
+  const {
+    data: incoming,
+    isLoading: incomingLoading,
+    isError: incomingError,
+    error: incomingErrorObj,
+    refetch: refetchIncoming,
+  } = useQuery({
+    queryKey: ['transfers', 'incoming', user?.branchId, statusParam],
+    queryFn: async () => {
+      const response = await transfersApi.getAll({ toBranchId: user?.branchId, status: statusParam })
+      return response.data
+    },
+    enabled: !!user?.branchId,
+  })
+
+  const incomingPendingCount = useMemo(
+    () => (incoming ?? []).filter((t: any) => t.items?.some((i: any) => i.status === 'PENDING')).length,
+    [incoming],
+  )
+
+  const {
+    data: branches,
+    isLoading: branchesLoading,
+    isError: branchesIsError,
+    error: branchesErrorObj,
+    refetch: refetchBranches,
+  } = useQuery({
+    queryKey: ['branches'],
+    queryFn: async () => {
+      const response = await branchesApi.getAll()
+      return response.data?.filter((b: any) => b.id !== user?.branchId)
+    },
+    enabled: showCreate,
+  })
+
+  const {
+    data: inventory,
+    isLoading: inventoryLoading,
+    isError: inventoryIsError,
+    error: inventoryErrorObj,
+    refetch: refetchInventory,
+  } = useQuery({
+    queryKey: ['inventory', user?.branchId],
+    queryFn: async () => {
+      if (!user?.branchId) return []
+      const response = await inventoryApi.getAll({ branchId: user.branchId })
+      return response.data
+    },
+    enabled: showCreate && !!user?.branchId,
+  })
+
+  const invalidateTransfers = () => {
+    queryClient.invalidateQueries({ queryKey: ['transfers'] })
+    queryClient.invalidateQueries({ queryKey: ['inventory'] })
+  }
+
+  const resetCreateForm = () => {
+    setShowCreate(false)
+    setToBranchId('')
+    setNotes('')
+    setProductSearch('')
+    setTransferItems([])
+  }
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => transfersApi.create(data),
+    onSuccess: () => {
+      invalidateTransfers()
+      resetCreateForm()
+      toast.success('Transfer request submitted')
+    },
+  })
+
+  const approveItemMutation = useMutation({
+    mutationFn: ({ transferId, itemId }: { transferId: string; itemId: string }) =>
+      transfersApi.approveItem(transferId, itemId),
+    onSuccess: () => {
+      invalidateTransfers()
+      setActionError(null)
+      toast.success('Item approved')
+    },
+    onError: (error: any) => {
+      const message = getErrorMessage(error, 'Failed to approve item')
+      setActionError(message)
+      toast.error(message)
+    },
+  })
+
+  const rejectItemMutation = useMutation({
+    mutationFn: ({ transferId, itemId, rejectionReason }: { transferId: string; itemId: string; rejectionReason: string }) =>
+      transfersApi.rejectItem(transferId, itemId, rejectionReason),
+    onSuccess: () => {
+      invalidateTransfers()
+      setActionError(null)
+      setRejectTarget(null)
+      setRejectReason('')
+      toast.success('Item rejected')
+    },
+    onError: (error: any) => {
+      const message = getErrorMessage(error, 'Failed to reject item')
+      setActionError(message)
+      toast.error(message)
+    },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => transfersApi.cancel(id),
+    onSuccess: () => {
+      invalidateTransfers()
+      setActionError(null)
+      toast.success('Transfer cancelled')
+    },
+    onError: (error: any) => {
+      const message = getErrorMessage(error, 'Failed to cancel transfer')
+      setActionError(message)
+      toast.error(message)
+    },
+  })
+
+  const filteredProducts = useMemo(() => {
+    if (!inventory) return []
+    if (!productSearch.trim()) return inventory
+    const q = productSearch.trim().toLowerCase()
+    return inventory.filter((inv: any) => inv.product?.name?.toLowerCase().includes(q))
+  }, [inventory, productSearch])
+
+  const setItemQty = (productId: string, variant: DraftItem['variant'], qty: number) => {
+    setTransferItems((prev) => {
+      const matches = (i: DraftItem) => i.productId === productId && i.variant === variant
+      if (!qty || qty <= 0) return prev.filter((i) => !matches(i))
+      const existing = prev.find(matches)
+      if (existing) return prev.map((i) => (matches(i) ? { ...i, quantity: qty } : i))
+      return [...prev, { productId, variant, quantity: qty }]
+    })
+  }
+
+  const getItemQty = (productId: string, variant: DraftItem['variant']) =>
+    transferItems.find((i) => i.productId === productId && i.variant === variant)?.quantity ?? ''
+
+  const invalidItems = useMemo(
+    () =>
+      transferItems.filter((i) => {
+        const inv = inventory?.find((x: any) => x.productId === i.productId)
+        return inv && i.quantity > getAvailableStock(inv, i.variant)
+      }),
+    [transferItems, inventory],
+  )
+
+  const activeItems = transferItems.filter((i) => i.quantity > 0)
+
+  const activeList = direction === 'outgoing' ? outgoing : incoming
+  const activeListLoading = direction === 'outgoing' ? outgoingLoading : incomingLoading
+  const activeListError = direction === 'outgoing' ? outgoingError : incomingError
+  const activeListErrorObj = direction === 'outgoing' ? outgoingErrorObj : incomingErrorObj
+  const refetchActive = direction === 'outgoing' ? refetchOutgoing : refetchIncoming
+
+  const displayedTransfers = useMemo(() => {
+    if (!activeList) return []
+    if (!search.trim()) return activeList
+    const q = search.trim().toLowerCase()
+    return activeList.filter((t: any) => t.transferCode?.toLowerCase().includes(q))
+  }, [activeList, search])
+
+  const canActOnItem = (transfer: any, item: any) =>
+    direction === 'incoming' && transfer.toBranchId === user?.branchId && item.status === 'PENDING'
+
+  const canCancel = (transfer: any) =>
+    direction === 'outgoing' &&
+    transfer.initiatedBy === user?.id &&
+    transfer.items?.every((i: any) => i.status === 'PENDING')
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Transfers</h1>
+          <p className="text-muted-foreground">Transfer products between branches</p>
+        </div>
+        <Button onClick={() => setShowCreate(true)}>
+          <Plus className="w-4 h-4 mr-2" />
+          New Transfer
+        </Button>
+      </div>
+
+      {actionError && <ErrorBanner message={actionError} />}
+
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <Tabs value={direction} onValueChange={(v) => setDirection(v as 'outgoing' | 'incoming')}>
+          <TabsList>
+            <TabsTrigger value="outgoing">Outgoing</TabsTrigger>
+            <TabsTrigger value="incoming" className="gap-2">
+              Incoming
+              {incomingPendingCount > 0 && (
+                <Badge variant="warning" className="ml-1">{incomingPendingCount}</Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by code..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 h-9 w-44"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s}>{s === 'ALL' ? 'All statuses' : s.replace('_', ' ')}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {activeListError ? (
+          <ErrorBanner
+            message={getErrorMessage(activeListErrorObj, 'Failed to load transfers')}
+            onRetry={() => refetchActive()}
+          />
+        ) : activeListLoading ? (
+          <div className="text-center py-12 text-muted-foreground">Loading transfers...</div>
+        ) : displayedTransfers.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            {direction === 'incoming' ? (
+              <Inbox className="w-12 h-12 mx-auto mb-4 opacity-30" />
+            ) : (
+              <Package className="w-12 h-12 mx-auto mb-4 opacity-30" />
+            )}
+            <p>
+              {search.trim() || statusFilter !== 'ALL'
+                ? 'No transfers match your filters'
+                : direction === 'incoming'
+                ? 'No incoming transfers'
+                : 'No transfers yet'}
+            </p>
+          </div>
+        ) : (
+          displayedTransfers.map((transfer: any) => (
+            <Card key={transfer.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div className="flex-1 cursor-pointer" onClick={() => setViewTransfer(transfer)}>
+                    <div className="flex items-center gap-3 mb-1 flex-wrap">
+                      <h3 className="font-bold">{transfer.transferCode}</h3>
+                      {getStatusBadge(transfer.status)}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      From: {transfer.fromBranch?.name} To: {transfer.toBranch?.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">{formatDate(transfer.createdAt)}</p>
+                  </div>
+                  <ArrowLeftRight className="w-6 h-6 text-muted-foreground shrink-0" />
+                </div>
+
+                {/* Per-item breakdown with individual approve/reject */}
+                <div className="space-y-2 border rounded-lg divide-y">
+                  {transfer.items?.map((item: any) => (
+                    <div key={item.id} className="p-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {item.product?.name}
+                            {variantLabel(item.variant) && (
+                              <span className="text-muted-foreground font-normal"> — {variantLabel(item.variant)}</span>
+                            )}
+                            {' '}x{item.quantity}
+                          </p>
+                          {item.status === 'REJECTED' && item.rejectionReason && (
+                            <p className="text-xs text-destructive mt-0.5">Reason: {item.rejectionReason}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {getItemStatusBadge(item.status)}
+                          {canActOnItem(transfer, item) && (
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                className="h-7 px-2"
+                                onClick={() => approveItemMutation.mutate({ transferId: transfer.id, itemId: item.id })}
+                                disabled={approveItemMutation.isPending}
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2"
+                                onClick={() => {
+                                  setRejectTarget({
+                                    transferId: transfer.id,
+                                    itemId: item.id,
+                                    label: `${item.product?.name}${variantLabel(item.variant) ? ` — ${variantLabel(item.variant)}` : ''} x${item.quantity}`,
+                                  })
+                                  setRejectReason('')
+                                }}
+                                disabled={rejectItemMutation.isPending}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {canCancel(transfer) && (
+                  <div className="flex justify-end mt-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => cancelMutation.mutate(transfer.id)}
+                      disabled={cancelMutation.isPending}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      {cancelMutation.isPending ? 'Cancelling...' : 'Cancel Request'}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+
+      {/* Create Dialog */}
+      <Dialog open={showCreate} onOpenChange={(open) => (open ? setShowCreate(true) : resetCreateForm())}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Create Transfer</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            {createMutation.isError && (
+              <ErrorBanner message={getErrorMessage(createMutation.error, 'Failed to create transfer')} />
+            )}
+
+            <div className="space-y-2">
+              <Label>To Branch *</Label>
+              {branchesIsError ? (
+                <ErrorBanner
+                  message={getErrorMessage(branchesErrorObj, 'Failed to load branches')}
+                  onRetry={() => refetchBranches()}
+                />
+              ) : (
+                <Select value={toBranchId} onValueChange={setToBranchId} disabled={branchesLoading}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={branchesLoading ? 'Loading branches...' : 'Select destination branch'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches?.map((b: any) => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {!branchesLoading && !branchesIsError && branches?.length === 0 && (
+                <p className="text-xs text-muted-foreground">No other branches are available to transfer to.</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Select Products</Label>
+                {inventory && inventory.length > 0 && (
+                  <Input
+                    placeholder="Filter products..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    className="h-7 w-40 text-xs"
+                  />
+                )}
+              </div>
+
+              {inventoryIsError ? (
+                <ErrorBanner
+                  message={getErrorMessage(inventoryErrorObj, 'Failed to load inventory')}
+                  onRetry={() => refetchInventory()}
+                />
+              ) : inventoryLoading ? (
+                <div className="text-sm text-muted-foreground py-4 text-center">Loading inventory...</div>
+              ) : inventory?.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-4 text-center border rounded-lg">
+                  No stock available at your branch to transfer.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto border rounded-lg p-2">
+                  {filteredProducts.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-3">No products match "{productSearch}"</p>
+                  ) : (
+                    filteredProducts.map((inv: any) => {
+                      if (inv.product?.isCylinderTracked) {
+                        const fullAvailable = inv.fullCylinders ?? 0
+                        const emptyAvailable = inv.emptyCylinders ?? (inv.quantity - fullAvailable)
+                        const refillQty = getItemQty(inv.productId, 'REFILL')
+                        const shellQty = getItemQty(inv.productId, 'EMPTY_SHELL')
+                        const refillInvalid = refillQty !== '' && Number(refillQty) > fullAvailable
+                        const shellInvalid = shellQty !== '' && Number(shellQty) > emptyAvailable
+                        return (
+                          <div key={inv.id} className="p-2 hover:bg-muted rounded">
+                            <p className="text-sm font-medium">{inv.product?.name}</p>
+                            <p className="text-xs text-muted-foreground mb-1.5">
+                              Full: {fullAvailable} · Empty: {emptyAvailable}
+                            </p>
+                            <div className="flex gap-3">
+                              <div className="flex-1">
+                                <Label className="text-[10px] text-muted-foreground">Refill (full)</Label>
+                                <Input
+                                  type="number"
+                                  className="h-8"
+                                  min={0}
+                                  max={fullAvailable}
+                                  value={refillQty}
+                                  placeholder="Qty"
+                                  onChange={(e) => setItemQty(inv.productId, 'REFILL', Number(e.target.value))}
+                                />
+                                {refillInvalid && <p className="text-[10px] text-destructive mt-0.5">Only {fullAvailable} full</p>}
+                              </div>
+                              <div className="flex-1">
+                                <Label className="text-[10px] text-muted-foreground">Empty Shell</Label>
+                                <Input
+                                  type="number"
+                                  className="h-8"
+                                  min={0}
+                                  max={emptyAvailable}
+                                  value={shellQty}
+                                  placeholder="Qty"
+                                  onChange={(e) => setItemQty(inv.productId, 'EMPTY_SHELL', Number(e.target.value))}
+                                />
+                                {shellInvalid && <p className="text-[10px] text-destructive mt-0.5">Only {emptyAvailable} empty</p>}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+
+                      const standardQty = getItemQty(inv.productId, 'STANDARD')
+                      const isInvalid = standardQty !== '' && Number(standardQty) > inv.quantity
+                      return (
+                        <div key={inv.id} className="p-2 hover:bg-muted rounded">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium">{inv.product?.name}</p>
+                              <p className="text-xs text-muted-foreground">Stock: {inv.quantity}</p>
+                            </div>
+                            <Input
+                              type="number"
+                              className="w-20 h-8"
+                              min={0}
+                              max={inv.quantity}
+                              value={standardQty}
+                              placeholder="Qty"
+                              onChange={(e) => setItemQty(inv.productId, 'STANDARD', Number(e.target.value))}
+                            />
+                          </div>
+                          {isInvalid && (
+                            <p className="text-xs text-destructive mt-1">Only {inv.quantity} in stock</p>
+                          )}
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Notes (optional)</Label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add any context for the receiving branch..."
+                rows={2}
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={resetCreateForm}>Cancel</Button>
+              <Button
+                onClick={() =>
+                  createMutation.mutate({
+                    fromBranchId: user?.branchId,
+                    toBranchId,
+                    items: activeItems,
+                    notes: notes.trim() || undefined,
+                  })
+                }
+                disabled={
+                  !toBranchId ||
+                  activeItems.length === 0 ||
+                  invalidItems.length > 0 ||
+                  createMutation.isPending
+                }
+              >
+                {createMutation.isPending ? 'Submitting...' : 'Submit Transfer'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Dialog (per item) */}
+      <Dialog open={!!rejectTarget} onOpenChange={(open) => !open && setRejectTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Reject Item</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            {rejectTarget && (
+              <p className="text-sm text-muted-foreground">{rejectTarget.label}</p>
+            )}
+            {rejectItemMutation.isError && (
+              <ErrorBanner message={getErrorMessage(rejectItemMutation.error, 'Failed to reject item')} />
+            )}
+            <div className="space-y-2">
+              <Label>Reason for rejection *</Label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="Explain why this item is being rejected..."
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRejectTarget(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                disabled={!rejectReason.trim() || rejectItemMutation.isPending || !rejectTarget}
+                onClick={() =>
+                  rejectTarget &&
+                  rejectItemMutation.mutate({
+                    transferId: rejectTarget.transferId,
+                    itemId: rejectTarget.itemId,
+                    rejectionReason: rejectReason.trim(),
+                  })
+                }
+              >
+                {rejectItemMutation.isPending ? 'Rejecting...' : 'Reject Item'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Details Dialog */}
+      <Dialog open={!!viewTransfer} onOpenChange={(open) => !open && setViewTransfer(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Transfer {viewTransfer?.transferCode}</DialogTitle></DialogHeader>
+          {viewTransfer && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                {getStatusBadge(viewTransfer.status)}
+                <span className="text-xs text-muted-foreground">{formatDateTime(viewTransfer.createdAt)}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground text-xs">From</p>
+                  <p className="font-medium">{viewTransfer.fromBranch?.name}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">To</p>
+                  <p className="font-medium">{viewTransfer.toBranch?.name}</p>
+                </div>
+                {viewTransfer.initiator && (
+                  <div>
+                    <p className="text-muted-foreground text-xs">Requested by</p>
+                    <p className="font-medium">{viewTransfer.initiator.firstName} {viewTransfer.initiator.lastName}</p>
+                  </div>
+                )}
+                {viewTransfer.approvedBy && (
+                  <div>
+                    <p className="text-muted-foreground text-xs">Last actioned by</p>
+                    <p className="font-medium">{viewTransfer.approvedBy.firstName} {viewTransfer.approvedBy.lastName}</p>
+                  </div>
+                )}
+              </div>
+
+              {viewTransfer.notes && (
+                <div>
+                  <p className="text-muted-foreground text-xs">Notes</p>
+                  <p className="text-sm">{viewTransfer.notes}</p>
+                </div>
+              )}
+
+              <div>
+                <p className="text-muted-foreground text-xs mb-2">Items</p>
+                <div className="space-y-2 border rounded-lg divide-y">
+                  {viewTransfer.items?.map((item: any) => (
+                    <div key={item.id} className="p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span>
+                          {item.product?.name}
+                          {variantLabel(item.variant) && (
+                            <span className="text-muted-foreground"> — {variantLabel(item.variant)}</span>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">x{item.quantity}</span>
+                          {getItemStatusBadge(item.status)}
+                        </div>
+                      </div>
+                      {item.status === 'REJECTED' && item.rejectionReason && (
+                        <p className="text-xs text-destructive mt-1">Reason: {item.rejectionReason}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+export default Transfers
