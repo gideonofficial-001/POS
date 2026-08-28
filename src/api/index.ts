@@ -133,6 +133,8 @@ export const customersApi = {
   toggleStatus: (id: string) => api.patch(`/customers/${id}/toggle`),
   getOutstandingBalances: () => api.get('/customers/outstanding-balances'),
 }
+delete: (id: string) => api.delete(`/customers/${id}`), 
+  }
 
 // ── Sales ─────────────────────────────────────────────────────────────────────
 export const salesApi = {
