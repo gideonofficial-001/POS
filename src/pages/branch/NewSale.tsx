@@ -7,14 +7,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
 import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag } from 'lucide-react'
 
-// Cart item ids use this separator to tag which LPG variant was selected
 const VARIANT_SEPARATOR = '~~'
 
 const NewSale = () => {
@@ -34,7 +32,6 @@ const NewSale = () => {
 
   const branchId = user?.branchId || ''
 
-  // Fetch Inventory
   const { data: inventory } = useQuery({
     queryKey: ['inventory', branchId],
     queryFn: async () => {
@@ -45,15 +42,20 @@ const NewSale = () => {
     enabled: !!branchId,
   })
 
-  // Fetch Customers (only when Invoice tab is active)
-  const { data: customers } = useQuery({
+  // Fixed the customer query to ensure it maps to an array perfectly
+  const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
-      // Assuming you want all active customers for the dropdown
-      const response = await customersApi.getAll()
-      return response.data
-    },
-    enabled: saleType === SaleType.INVOICE,
+      try {
+        const response = await customersApi.getAll()
+        const data = Array.isArray(response.data) ? response.data : (response.data?.data || [])
+        // Only show active customers in the dropdown
+        return data.filter((c: any) => c.isActive)
+      } catch (error) {
+        console.error('Failed to load customers', error)
+        return []
+      }
+    }
   })
 
   const createSaleMutation = useMutation({
@@ -74,7 +76,6 @@ const NewSale = () => {
     },
   })
 
-  // Filter inventory based on search (or show all if empty)
   const filteredInventory = inventory?.filter((inv: any) => {
     if (!inv.product?.isActive) return false;
     if (search.trim() === '') return true;
@@ -151,16 +152,17 @@ const NewSale = () => {
   }
 
   return (
-    <div className="h-[calc(100vh-6rem)] flex flex-col space-y-4">
+    // Changed layout constraints so mobile handles stacking properly
+    <div className="flex flex-col lg:h-[calc(100vh-6rem)] space-y-4 pb-10 lg:pb-0">
       <div className="flex-shrink-0">
         <h1 className="text-2xl font-bold">New Sale</h1>
         <p className="text-muted-foreground">Search and tap products to add to cart</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+      <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 flex-1 min-h-0">
         {/* Left Side: Search & Scrollable Products Grid */}
-        <div className="lg:col-span-2 flex flex-col h-full bg-muted/10 rounded-xl border overflow-hidden">
-          {/* Pinned Search Bar */}
+        {/* Fixed height on mobile (h-[50vh]) ensures scrolling compartment */}
+        <div className="lg:col-span-2 flex flex-col h-[50vh] lg:h-full bg-muted/10 rounded-xl border overflow-hidden shadow-sm">
           <div className="p-4 bg-white border-b flex-shrink-0">
             <div className="relative">
               <Search className="absolute left-4 top-4 h-5 w-5 text-muted-foreground" />
@@ -169,15 +171,13 @@ const NewSale = () => {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-12 h-14 text-lg bg-gray-50/50 border-gray-200 focus-visible:ring-primary shadow-sm"
-                autoFocus
               />
             </div>
           </div>
 
-          {/* Scrollable Products Compartment */}
           <div className="flex-1 overflow-y-auto p-4">
             {filteredInventory.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
+              <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground">
                 <Package className="w-12 h-12 mb-4 opacity-30" />
                 <p>No products found {search.trim() !== '' && `matching "${search}"`}</p>
               </div>
@@ -232,8 +232,8 @@ const NewSale = () => {
           </div>
         </div>
 
-        {/* Right Side: Sticky Cart Section */}
-        <div className="flex flex-col h-full">
+        {/* Right Side: Cart Section */}
+        <div className="flex flex-col h-auto lg:h-full">
           <Card className="flex flex-col h-full border-primary/10 shadow-md">
             <CardHeader className="pb-4 flex-shrink-0">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -242,8 +242,7 @@ const NewSale = () => {
               </CardTitle>
             </CardHeader>
             
-            <CardContent className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
-              {/* Sale Type Toggles */}
+            <CardContent className="flex-1 flex flex-col min-h-[300px] overflow-hidden space-y-4">
               <div className="flex gap-2 flex-shrink-0">
                 <Button 
                   variant={saleType === SaleType.CASH ? 'default' : 'outline'} 
@@ -255,17 +254,13 @@ const NewSale = () => {
                 <Button 
                   variant={saleType === SaleType.INVOICE ? 'default' : 'outline'} 
                   className="flex-1 bg-amber-600 hover:bg-amber-700 text-white" 
-                  onClick={() => {
-                    setSaleType(SaleType.INVOICE)
-                    // Reset discount when switching to invoice if desired, or keep it.
-                  }}
+                  onClick={() => setSaleType(SaleType.INVOICE)}
                 >
                   Invoice
                 </Button>
               </div>
 
-              {/* Scrollable Cart Items */}
-              <div className="flex-1 overflow-y-auto space-y-2 pr-2 border rounded-lg p-2 bg-gray-50/50">
+              <div className="flex-1 overflow-y-auto space-y-2 pr-2 border rounded-lg p-2 bg-gray-50/50 min-h-[150px]">
                 {items.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-60">
                     <ShoppingCart className="w-12 h-12 mb-2" />
@@ -295,7 +290,6 @@ const NewSale = () => {
                 )}
               </div>
 
-              {/* Conditional Customer Dropdown for Invoices */}
               <div className="flex-shrink-0 space-y-3">
                 {saleType === SaleType.INVOICE && (
                   <div className="space-y-1.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -307,7 +301,7 @@ const NewSale = () => {
                         className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
                       >
                         <option value="">-- Choose a customer --</option>
-                        {customers?.map((c: any) => (
+                        {customers.map((c: any) => (
                           <option key={c.id} value={c.id}>
                             {c.name} {c.phone ? `(${c.phone})` : ''}
                           </option>
@@ -317,7 +311,6 @@ const NewSale = () => {
                   </div>
                 )}
 
-                {/* Discount */}
                 <div className="flex items-center gap-2 px-1">
                   <Tag className="w-4 h-4 text-muted-foreground" />
                   <Input 
@@ -331,7 +324,6 @@ const NewSale = () => {
 
                 <Separator />
 
-                {/* Totals */}
                 <div className="space-y-1.5 text-sm bg-slate-900 text-white p-4 rounded-xl shadow-inner">
                   <div className="flex justify-between text-slate-300">
                     <span>Subtotal</span>
