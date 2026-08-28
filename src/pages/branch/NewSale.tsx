@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { inventoryApi, salesApi, customersApi } from '@/api'
+import api, { inventoryApi, salesApi, customersApi } from '@/api'
 import { useAuthStore, useCartStore } from '@/store'
 import { SaleType } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
 import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag } from 'lucide-react'
@@ -29,6 +29,9 @@ const NewSale = () => {
 
   const [lpgModalOpen, setLpgModalOpen] = useState(false)
   const [selectedInvItem, setSelectedInvItem] = useState<any>(null)
+  
+  // WhatsApp Generator State
+  const [invoiceReceipt, setInvoiceReceipt] = useState<{code: string, name: string, phone: string, total: number} | null>(null)
 
   const branchId = user?.branchId || ''
 
@@ -42,17 +45,14 @@ const NewSale = () => {
     enabled: !!branchId,
   })
 
-  // Fixed the customer query to ensure it maps to an array perfectly
   const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
       try {
         const response = await customersApi.getAll()
         const data = Array.isArray(response.data) ? response.data : (response.data?.data || [])
-        // Only show active customers in the dropdown
         return data.filter((c: any) => c.isActive)
       } catch (error) {
-        console.error('Failed to load customers', error)
         return []
       }
     }
@@ -60,12 +60,24 @@ const NewSale = () => {
 
   const createSaleMutation = useMutation({
     mutationFn: (data: any) => salesApi.create(data),
-    onSuccess: (response) => {
-      toast.success(`Sale completed! Code: ${response.data.saleCode}`)
+    onSuccess: (response, variables) => {
+      if (variables.type === SaleType.INVOICE) {
+        const customer = customers.find((c: any) => c.id === variables.customerId)
+        setInvoiceReceipt({
+          code: response.data.saleCode,
+          name: customer?.name || 'Customer',
+          phone: customer?.phone || '',
+          total: getTotal() - (discount || 0)
+        })
+      } else {
+        toast.success(`Cash sale completed! Code: ${response.data.saleCode}`)
+      }
+      
       clearCart()
       setSearch('')
       setSelectedCustomerId('')
       setSaleType(SaleType.CASH)
+      setDiscount(0)
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
@@ -86,14 +98,9 @@ const NewSale = () => {
   }) || []
 
   const handleCheckout = () => {
-    if (items.length === 0) {
-      toast.error('Cart is empty')
-      return
-    }
-
+    if (items.length === 0) return toast.error('Cart is empty')
     if (saleType === SaleType.INVOICE && !selectedCustomerId) {
-      toast.error('Please select a customer for this invoice')
-      return
+      return toast.error('Please select a customer for this invoice')
     }
 
     const saleData = {
@@ -124,27 +131,22 @@ const NewSale = () => {
       if (selectedInvItem.fullCylinders > 0) {
         addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}REFILL`, name: `${p.name} (Refill)` }, 1)
         toast.success(`Added ${p.name} Refill`)
-      } else {
-        toast.error('No full cylinders in stock!')
-      }
-    } else if (type === 'EMPTY_SHELL') {
-      if (emptyPrice == null) {
-        toast.error('Empty shell price is not set for this product')
-      } else if (selectedInvItem.emptyCylinders > 0) {
+      } else toast.error('No full cylinders in stock!')
+    } 
+    else if (type === 'EMPTY_SHELL') {
+      if (emptyPrice == null) toast.error('Empty shell price is not set for this product')
+      else if (selectedInvItem.emptyCylinders > 0) {
         addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}EMPTY_SHELL`, name: `${p.name} (Empty Shell)`, price: emptyPrice }, 1)
         toast.success(`Added ${p.name} Empty Shell`)
-      } else {
-        toast.error('No empty shells in stock!')
-      }
-    } else if (type === 'COMPLETE_SET') {
-      if (emptyPrice == null) {
-        toast.error('Empty shell price is not set for this product')
-      } else if (selectedInvItem.fullCylinders > 0) {
+      } else toast.error('No empty shells in stock!')
+    } 
+    else if (type === 'COMPLETE_SET') {
+      if (emptyPrice == null) toast.error('Empty shell price is not set for this product')
+      else if (selectedInvItem.fullCylinders > 0) {
+        // Complete Sets ONLY check for fullCylinders (gas) availability, empty shells are ignored.
         addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}COMPLETE_SET`, name: `${p.name} (Complete Set)`, price: Number(p.price) + emptyPrice }, 1)
         toast.success(`Added ${p.name} Complete Set`)
-      } else {
-        toast.error('No full cylinders in stock to make a complete set!')
-      }
+      } else toast.error('No full cylinders in stock to make a complete set!')
     }
 
     setLpgModalOpen(false)
@@ -152,7 +154,6 @@ const NewSale = () => {
   }
 
   return (
-    // Changed layout constraints so mobile handles stacking properly
     <div className="flex flex-col lg:h-[calc(100vh-6rem)] space-y-4 pb-10 lg:pb-0">
       <div className="flex-shrink-0">
         <h1 className="text-2xl font-bold">New Sale</h1>
@@ -161,7 +162,6 @@ const NewSale = () => {
 
       <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 flex-1 min-h-0">
         {/* Left Side: Search & Scrollable Products Grid */}
-        {/* Fixed height on mobile (h-[50vh]) ensures scrolling compartment */}
         <div className="lg:col-span-2 flex flex-col h-[50vh] lg:h-full bg-muted/10 rounded-xl border overflow-hidden shadow-sm">
           <div className="p-4 bg-white border-b flex-shrink-0">
             <div className="relative">
@@ -204,9 +204,7 @@ const NewSale = () => {
                           if (!isOutOfStock) {
                             addItem(product, 1)
                             setSearch('')
-                          } else {
-                            toast.error('Out of stock!')
-                          }
+                          } else toast.error('Out of stock!')
                         }
                       }}
                     >
@@ -244,20 +242,8 @@ const NewSale = () => {
             
             <CardContent className="flex-1 flex flex-col min-h-[300px] overflow-hidden space-y-4">
               <div className="flex gap-2 flex-shrink-0">
-                <Button 
-                  variant={saleType === SaleType.CASH ? 'default' : 'outline'} 
-                  className="flex-1" 
-                  onClick={() => setSaleType(SaleType.CASH)}
-                >
-                  Cash
-                </Button>
-                <Button 
-                  variant={saleType === SaleType.INVOICE ? 'default' : 'outline'} 
-                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white" 
-                  onClick={() => setSaleType(SaleType.INVOICE)}
-                >
-                  Invoice
-                </Button>
+                <Button variant={saleType === SaleType.CASH ? 'default' : 'outline'} className="flex-1" onClick={() => setSaleType(SaleType.CASH)}>Cash</Button>
+                <Button variant={saleType === SaleType.INVOICE ? 'default' : 'outline'} className="flex-1 bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setSaleType(SaleType.INVOICE)}>Invoice</Button>
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-2 pr-2 border rounded-lg p-2 bg-gray-50/50 min-h-[150px]">
@@ -294,32 +280,24 @@ const NewSale = () => {
                 {saleType === SaleType.INVOICE && (
                   <div className="space-y-1.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                     <Label className="text-xs font-bold text-amber-900 uppercase tracking-wider">Select Customer (Required)</Label>
-                    <div className="relative">
-                      <select
-                        value={selectedCustomerId}
-                        onChange={(e) => setSelectedCustomerId(e.target.value)}
-                        className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
-                      >
-                        <option value="">-- Choose a customer --</option>
-                        {customers.map((c: any) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} {c.phone ? `(${c.phone})` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <select
+                      value={selectedCustomerId}
+                      onChange={(e) => setSelectedCustomerId(e.target.value)}
+                      className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
+                    >
+                      <option value="">-- Choose a customer --</option>
+                      {customers.map((c: any) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} {c.phone ? `(${c.phone})` : ''}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
 
                 <div className="flex items-center gap-2 px-1">
                   <Tag className="w-4 h-4 text-muted-foreground" />
-                  <Input 
-                    type="number" 
-                    placeholder="Apply Discount (KES)" 
-                    value={discount || ''} 
-                    onChange={e => setDiscount(Number(e.target.value))} 
-                    className="flex-1 h-10 border-gray-200" 
-                  />
+                  <Input type="number" placeholder="Apply Discount (KES)" value={discount || ''} onChange={e => setDiscount(Number(e.target.value))} className="flex-1 h-10 border-gray-200" />
                 </div>
 
                 <Separator />
@@ -356,7 +334,7 @@ const NewSale = () => {
         </div>
       </div>
 
-      {/* The LPG Selection Modal */}
+      {/* LPG Selection Modal */}
       <Dialog open={lpgModalOpen} onOpenChange={setLpgModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -392,9 +370,7 @@ const NewSale = () => {
                   <span className="text-xs font-medium text-amber-600">{selectedInvItem?.emptyCylinders} left</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Selling shell asset ({selectedInvItem?.product?.emptyPrice != null
-                    ? formatCurrency(selectedInvItem.product.emptyPrice)
-                    : 'price not set'})
+                  Selling shell asset ({selectedInvItem?.product?.emptyPrice != null ? formatCurrency(selectedInvItem.product.emptyPrice) : 'price not set'})
                 </p>
               </div>
             </Button>
@@ -408,11 +384,43 @@ const NewSale = () => {
               <div className="flex-1">
                 <p className="font-bold">Complete Set (Gas + Shell)</p>
                 <p className="text-xs opacity-90">
-                  Customer takes new cylinder ({selectedInvItem?.product?.emptyPrice != null
-                    ? formatCurrency(Number(selectedInvItem.product.price) + Number(selectedInvItem.product.emptyPrice))
-                    : 'price not set'})
+                  Customer takes new cylinder ({selectedInvItem?.product?.emptyPrice != null ? formatCurrency(Number(selectedInvItem.product.price) + Number(selectedInvItem.product.emptyPrice)) : 'price not set'})
                 </p>
               </div>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invoice WhatsApp/SMS Generator Modal */}
+      <Dialog open={!!invoiceReceipt} onOpenChange={() => setInvoiceReceipt(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-amber-600 flex items-center gap-2">
+              <Package className="w-5 h-5" /> Invoice Generated Successfully
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              The invoice has been saved. Copy the message below to send to the customer and the admin via WhatsApp/SMS.
+            </p>
+            <textarea 
+              readOnly 
+              className="w-full h-32 p-3 bg-muted rounded-md text-sm border focus:outline-none"
+              value={`Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nPlease arrange payment. Thank you!`}
+            />
+            <Button 
+              className="w-full bg-green-600 hover:bg-green-700 text-white"
+              onClick={() => {
+                const msg = `Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nPlease arrange payment. Thank you!`
+                navigator.clipboard.writeText(msg)
+                toast.success('Message copied to clipboard!')
+              }}
+            >
+              Copy WhatsApp Message
+            </Button>
+            <Button variant="outline" className="w-full" onClick={() => setInvoiceReceipt(null)}>
+              Close
             </Button>
           </div>
         </DialogContent>
