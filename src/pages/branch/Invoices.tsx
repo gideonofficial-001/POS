@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api, { customersApi } from '@/api'
+import { useAuthStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,17 +10,18 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
-import { FileText, Phone, Mail, Users, Copy, CheckCircle } from 'lucide-react'
+import { FileText, Phone, Users, Copy, CheckCircle, Store } from 'lucide-react'
 
 const Invoices = () => {
+  const { user } = useAuthStore()
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'OVERALL_MANAGER'
+  
   const queryClient = useQueryClient()
   
-  // Modals state
   const [showCustomersModal, setShowCustomersModal] = useState(false)
   const [selectedPaymentInvoice, setSelectedPaymentInvoice] = useState<any>(null)
   const [paymentAmount, setPaymentAmount] = useState('')
 
-  // Fetch Invoices
   const { data: invoices } = useQuery({
     queryKey: ['invoices'],
     queryFn: async () => {
@@ -28,7 +30,6 @@ const Invoices = () => {
     },
   })
 
-  // Fetch Customers (for the view directory)
   const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
@@ -42,7 +43,6 @@ const Invoices = () => {
     }
   })
 
-  // Record Payment Mutation
   const recordPaymentMutation = useMutation({
     mutationFn: (data: { id: string, amount: number }) => api.patch(`/invoices/${data.id}/payment`, { amount: data.amount }),
     onSuccess: () => {
@@ -89,7 +89,7 @@ const Invoices = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Invoices</h1>
+          <h1 className="text-2xl font-bold">{isAdmin ? 'All Branch Invoices' : 'Invoices'}</h1>
           <p className="text-muted-foreground">Manage customer invoices and payments</p>
         </div>
         <Button onClick={() => setShowCustomersModal(true)} variant="outline" className="bg-white">
@@ -107,7 +107,14 @@ const Invoices = () => {
                   <h3 className="font-bold text-lg">{invoice.invoiceCode}</h3>
                   <p className="text-xs text-muted-foreground">{formatDate(invoice.createdAt)}</p>
                 </div>
-                {getStatusBadge(invoice.status)}
+                <div className="flex flex-col items-end gap-1">
+                  {getStatusBadge(invoice.status)}
+                  {isAdmin && invoice.branch && (
+                    <Badge variant="outline" className="bg-slate-50 text-[10px] py-0">
+                      <Store className="w-3 h-3 mr-1" /> {invoice.branch.name}
+                    </Badge>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2 mt-4 bg-muted/30 p-3 rounded-lg">
@@ -159,7 +166,7 @@ const Invoices = () => {
       {invoices?.length === 0 && (
         <div className="text-center py-12 text-muted-foreground bg-white border rounded-xl shadow-sm">
           <FileText className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p>No invoices yet. Create your first invoice from the New Sale page!</p>
+          <p>No invoices found in the system.</p>
         </div>
       )}
 
@@ -231,7 +238,6 @@ const Invoices = () => {
           </form>
         </DialogContent>
       </Dialog>
-
     </div>
   )
 }
