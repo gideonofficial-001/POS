@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import api, { inventoryApi, salesApi, customersApi } from '@/api'
+import { inventoryApi, salesApi, customersApi } from '@/api'
 import { useAuthStore, useCartStore } from '@/store'
 import { SaleType } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,8 @@ const NewSale = () => {
 
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  
+  // Sale Type State (CASH = Retail, WHOLESALE = Wholesale)
   const [saleType, setSaleType] = useState<SaleType>(SaleType.CASH)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
 
@@ -70,7 +72,7 @@ const NewSale = () => {
           total: getTotal() - (discount || 0)
         })
       } else {
-        toast.success(`Cash sale completed! Code: ${response.data.saleCode}`)
+        toast.success(`Sale completed! Code: ${response.data.saleCode}`)
       }
       
       clearCart()
@@ -83,9 +85,7 @@ const NewSale = () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Failed to create sale')
-    },
+    onError: (error: any) => toast.error(error.response?.data?.message || 'Failed to create sale')
   })
 
   const filteredInventory = inventory?.filter((inv: any) => {
@@ -96,6 +96,18 @@ const NewSale = () => {
       inv.product.code.toLowerCase().includes(search.toLowerCase())
     )
   }) || []
+
+  // Helper to safely switch sale types (prevents mixing retail and wholesale prices in cart)
+  const handleTypeSwitch = (newType: SaleType) => {
+    if (items.length > 0 && newType !== saleType) {
+      if (window.confirm('Changing the sale type will clear your current cart. Do you want to proceed?')) {
+        clearCart()
+        setSaleType(newType)
+      }
+    } else {
+      setSaleType(newType)
+    }
+  }
 
   const handleCheckout = () => {
     if (items.length === 0) return toast.error('Cart is empty')
@@ -125,11 +137,15 @@ const NewSale = () => {
     if (!selectedInvItem) return;
 
     const p = selectedInvItem.product;
-    const emptyPrice = p.emptyPrice != null ? Number(p.emptyPrice) : null;
+    
+    // Dynamically calculate prices based on Retail vs Wholesale
+    const baseGasPrice = saleType === SaleType.WHOLESALE ? Number(p.wholesalePrice || p.price) : Number(p.price);
+    const rawEmptyPrice = saleType === SaleType.WHOLESALE ? (p.wholesaleEmptyPrice || p.emptyPrice) : p.emptyPrice;
+    const emptyPrice = rawEmptyPrice != null ? Number(rawEmptyPrice) : null;
 
     if (type === 'REFILL') {
       if (selectedInvItem.fullCylinders > 0) {
-        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}REFILL`, name: `${p.name} (Refill)` }, 1)
+        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}REFILL`, name: `${p.name} (Refill)`, price: baseGasPrice }, 1)
         toast.success(`Added ${p.name} Refill`)
       } else toast.error('No full cylinders in stock!')
     } 
@@ -143,8 +159,7 @@ const NewSale = () => {
     else if (type === 'COMPLETE_SET') {
       if (emptyPrice == null) toast.error('Empty shell price is not set for this product')
       else if (selectedInvItem.fullCylinders > 0) {
-        // Complete Sets ONLY check for fullCylinders (gas) availability, empty shells are ignored.
-        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}COMPLETE_SET`, name: `${p.name} (Complete Set)`, price: Number(p.price) + emptyPrice }, 1)
+        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}COMPLETE_SET`, name: `${p.name} (Complete Set)`, price: baseGasPrice + emptyPrice }, 1)
         toast.success(`Added ${p.name} Complete Set`)
       } else toast.error('No full cylinders in stock to make a complete set!')
     }
@@ -161,6 +176,7 @@ const NewSale = () => {
       </div>
 
       <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 flex-1 min-h-0">
+        
         {/* Left Side: Search & Scrollable Products Grid */}
         <div className="lg:col-span-2 flex flex-col h-[50vh] lg:h-full bg-muted/10 rounded-xl border overflow-hidden shadow-sm">
           <div className="p-4 bg-white border-b flex-shrink-0">
@@ -189,6 +205,11 @@ const NewSale = () => {
                   const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity;
                   const isOutOfStock = availableStock === 0;
 
+                  // Determine active display price based on toggle
+                  const displayPrice = saleType === SaleType.WHOLESALE 
+                    ? (product.wholesalePrice || product.price) 
+                    : product.price;
+
                   return (
                     <Card
                       key={product.id}
@@ -202,7 +223,8 @@ const NewSale = () => {
                           setLpgModalOpen(true)
                         } else {
                           if (!isOutOfStock) {
-                            addItem(product, 1)
+                            // Non-LPG products added straight to cart
+                            addItem({ ...product, price: displayPrice }, 1)
                             setSearch('')
                           } else toast.error('Out of stock!')
                         }
@@ -219,7 +241,7 @@ const NewSale = () => {
                         </div>
                         <div>
                           <h4 className="font-semibold text-sm line-clamp-2 leading-snug">{product.name}</h4>
-                          <p className="text-lg font-black text-primary mt-1">{formatCurrency(product.price)}</p>
+                          <p className="text-lg font-black text-primary mt-1">{formatCurrency(displayPrice)}</p>
                         </div>
                       </CardContent>
                     </Card>
@@ -241,9 +263,30 @@ const NewSale = () => {
             </CardHeader>
             
             <CardContent className="flex-1 flex flex-col min-h-[300px] overflow-hidden space-y-4">
-              <div className="flex gap-2 flex-shrink-0">
-                <Button variant={saleType === SaleType.CASH ? 'default' : 'outline'} className="flex-1" onClick={() => setSaleType(SaleType.CASH)}>Cash</Button>
-                <Button variant={saleType === SaleType.INVOICE ? 'default' : 'outline'} className="flex-1 bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setSaleType(SaleType.INVOICE)}>Invoice</Button>
+              
+              {/* RETAIL vs WHOLESALE vs INVOICE Toggles */}
+              <div className="flex gap-2 flex-shrink-0 bg-muted/30 p-1 rounded-lg">
+                <Button 
+                  variant={saleType === SaleType.CASH ? 'default' : 'ghost'} 
+                  className={`flex-1 ${saleType === SaleType.CASH ? 'shadow-sm' : ''}`}
+                  onClick={() => handleTypeSwitch(SaleType.CASH)}
+                >
+                  Retail
+                </Button>
+                <Button 
+                  variant={saleType === SaleType.WHOLESALE ? 'default' : 'ghost'} 
+                  className={`flex-1 ${saleType === SaleType.WHOLESALE ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm' : ''}`}
+                  onClick={() => handleTypeSwitch(SaleType.WHOLESALE)}
+                >
+                  Wholesale
+                </Button>
+                <Button 
+                  variant={saleType === SaleType.INVOICE ? 'default' : 'ghost'} 
+                  className={`flex-1 ${saleType === SaleType.INVOICE ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-sm' : ''}`}
+                  onClick={() => handleTypeSwitch(SaleType.INVOICE)}
+                >
+                  Invoice
+                </Button>
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-2 pr-2 border rounded-lg p-2 bg-gray-50/50 min-h-[150px]">
@@ -323,7 +366,7 @@ const NewSale = () => {
             
             <CardFooter className="pt-2 flex-shrink-0">
               <Button 
-                className="w-full text-lg font-bold h-14 shadow-lg" 
+                className={`w-full text-lg font-bold h-14 shadow-lg ${saleType === SaleType.WHOLESALE ? 'bg-purple-600 hover:bg-purple-700' : ''}`} 
                 disabled={items.length === 0 || createSaleMutation.isPending || (saleType === SaleType.INVOICE && !selectedCustomerId)} 
                 onClick={handleCheckout}
               >
@@ -359,18 +402,23 @@ const NewSale = () => {
 
             <Button 
               variant="outline" 
-              className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders === 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`} 
+              // Math.max fixes the negative display UI bug!
+              className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`} 
               onClick={() => handleLpgSelect('EMPTY_SHELL')}
-              disabled={selectedInvItem?.emptyCylinders === 0 || selectedInvItem?.product?.emptyPrice == null}
+              disabled={selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null}
             >
               <Package className="w-5 h-5 mr-3 text-amber-600" />
               <div className="flex-1">
                 <div className="flex justify-between w-full">
                   <p className="font-bold">Empty Cylinder</p>
-                  <span className="text-xs font-medium text-amber-600">{selectedInvItem?.emptyCylinders} left</span>
+                  <span className="text-xs font-medium text-amber-600">{Math.max(0, selectedInvItem?.emptyCylinders || 0)} left</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Selling shell asset ({selectedInvItem?.product?.emptyPrice != null ? formatCurrency(selectedInvItem.product.emptyPrice) : 'price not set'})
+                  Selling shell asset (
+                    {saleType === SaleType.WHOLESALE 
+                      ? (selectedInvItem?.product?.wholesaleEmptyPrice ? formatCurrency(selectedInvItem.product.wholesaleEmptyPrice) : 'price not set')
+                      : (selectedInvItem?.product?.emptyPrice != null ? formatCurrency(selectedInvItem.product.emptyPrice) : 'price not set')}
+                  )
                 </p>
               </div>
             </Button>
@@ -384,7 +432,12 @@ const NewSale = () => {
               <div className="flex-1">
                 <p className="font-bold">Complete Set (Gas + Shell)</p>
                 <p className="text-xs opacity-90">
-                  Customer takes new cylinder ({selectedInvItem?.product?.emptyPrice != null ? formatCurrency(Number(selectedInvItem.product.price) + Number(selectedInvItem.product.emptyPrice)) : 'price not set'})
+                  Customer takes new cylinder (
+                    {saleType === SaleType.WHOLESALE
+                      ? formatCurrency(Number(selectedInvItem?.product?.wholesalePrice || 0) + Number(selectedInvItem?.product?.wholesaleEmptyPrice || 0))
+                      : formatCurrency(Number(selectedInvItem?.product?.price || 0) + Number(selectedInvItem?.product?.emptyPrice || 0))
+                    }
+                  )
                 </p>
               </div>
             </Button>
