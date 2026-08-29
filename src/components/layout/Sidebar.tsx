@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuthStore, useSidebarStore } from '@/store'
 import { UserRole } from '@/types'
+import { Logo } from '@/components/Logo'
 import {
   LayoutDashboard, Users, Building2, PackageSearch, UsersRound,
   ShoppingCart, FileText, RotateCcw, History, BarChart3,
@@ -25,7 +26,6 @@ const Sidebar = () => {
     if (!user) return []
     const items = []
 
-    // Super Admin Navigation
     if (user.role === UserRole.SUPER_ADMIN) {
       items.push(
         { path: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -34,7 +34,7 @@ const Sidebar = () => {
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
-        { path: '/admin/sales-history', icon: History, label: 'Sales History' }, // <-- ADDED
+        { path: '/admin/sales-history', icon: History, label: 'Sales History' },
         { path: '/admin/transfers', icon: ArrowLeftRight, label: 'Transfers' },
         { path: '/admin/devices',   icon: Smartphone,    label: 'Devices' },
         { path: '/notifications',   icon: Bell,          label: 'Notifications' },
@@ -43,21 +43,19 @@ const Sidebar = () => {
       )
     }
 
-    // Overall Manager Navigation
     if (user.role === UserRole.OVERALL_MANAGER) {
       items.push(
         { path: '/manager/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
-        { path: '/admin/sales-history', icon: History, label: 'Sales History' }, // <-- ADDED
+        { path: '/admin/sales-history', icon: History, label: 'Sales History' },
         { path: '/manager/reports', icon: BarChart3, label: 'Reports' },
         { path: '/notifications', icon: Bell, label: 'Notifications' },
         { path: '/settings', icon: Settings, label: 'Settings' },
       )
     }
 
-    // Branch Manager Navigation
     if (user.role === UserRole.BRANCH_MANAGER) {
       items.push(
         { path: '/branch/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -80,28 +78,18 @@ const Sidebar = () => {
 
   const sidebarContent = (
     <>
-      {/* Logo */}
       <div className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shrink-0">
-            <span className="text-primary-foreground font-bold text-lg">N</span>
-          </div>
-          {!collapsed && (
-            <div className="overflow-hidden">
-              <h1 className="font-bold text-lg leading-tight truncate">Njugush POS</h1>
-              <p className="text-xs text-muted-foreground truncate">Enterprise System</p>
-            </div>
-          )}
+        <div className="flex items-center overflow-hidden">
+          <Logo size="sm" variant="color" showText={!collapsed} />
         </div>
-        <button onClick={() => setMobileOpen(false)} className="lg:hidden p-2 hover:bg-muted rounded-lg">
+        <button onClick={() => setMobileOpen(false)} className="lg:hidden p-2 hover:bg-muted rounded-lg shrink-0">
           <X className="w-5 h-5" />
         </button>
-        <button onClick={toggleCollapsed} className="hidden lg:flex p-1.5 hover:bg-muted rounded-lg transition-colors">
+        <button onClick={toggleCollapsed} className="hidden lg:flex p-1.5 hover:bg-muted rounded-lg transition-colors shrink-0">
           {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-1">
           {navItems.map((item) => (
@@ -124,7 +112,6 @@ const Sidebar = () => {
         </ul>
       </nav>
 
-      {/* Footer */}
       <div className="p-3 border-t">
         <button onClick={handleLogout} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 w-full transition-colors">
           <LogOut className="w-5 h-5 shrink-0" />
