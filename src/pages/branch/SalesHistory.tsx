@@ -5,22 +5,20 @@ import { useAuthStore } from '@/store'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatCurrency } from '@/lib/utils'
 import { History, Calendar, Search } from 'lucide-react'
 
 const SalesHistory = () => {
   const { user } = useAuthStore()
   const [search, setSearch] = useState('')
+  const [view, setView] = useState('all') // 'all', 'retail', 'wholesale'
   const [dateFilter, setDateFilter] = useState('')
 
   const { data: sales, isLoading } = useQuery({
     queryKey: ['sales', dateFilter],
     queryFn: async () => {
-      const params: any = { 
-        branchId: user?.branchId,
-        type: 'CASH' // Forces the backend to ONLY return cash/retail/wholesale sales
-      }
-      
+      const params: any = { branchId: user?.branchId }
       if (dateFilter) {
         const date = new Date(dateFilter)
         params.startDate = date.toISOString()
@@ -31,10 +29,15 @@ const SalesHistory = () => {
     },
   })
 
+  // Filter out invoices entirely, then apply search and retail/wholesale tabs
   const filtered = sales?.filter((sale: any) => {
-    if (!search) return true
+    if (sale.type === 'INVOICE') return false; // Hide invoices
+    if (view === 'retail' && sale.type !== 'CASH') return false;
+    if (view === 'wholesale' && sale.type !== 'WHOLESALE') return false;
+    
+    if (!search) return true;
     return sale.saleCode?.toLowerCase().includes(search.toLowerCase()) ||
-           sale.customerName?.toLowerCase().includes(search.toLowerCase())
+           sale.customer?.name?.toLowerCase().includes(search.toLowerCase())
   })
 
   // Group by date
@@ -49,7 +52,7 @@ const SalesHistory = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Sales History</h1>
-        <p className="text-muted-foreground">View your past cash transactions</p>
+        <p className="text-muted-foreground">View your past cash and wholesale transactions</p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4">
@@ -62,6 +65,14 @@ const SalesHistory = () => {
           <Input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="w-auto bg-white" />
         </div>
       </div>
+
+      <Tabs value={view} onValueChange={setView}>
+        <TabsList>
+          <TabsTrigger value="all">All Sales</TabsTrigger>
+          <TabsTrigger value="retail">Retail (Cash)</TabsTrigger>
+          <TabsTrigger value="wholesale">Wholesale</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {Object.keys(grouped).length === 0 ? (
         <div className="text-center py-12 text-muted-foreground bg-white border rounded-xl shadow-sm">
@@ -79,6 +90,9 @@ const SalesHistory = () => {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-lg">{sale.saleCode}</span>
+                        <Badge variant={sale.type === 'WHOLESALE' ? 'secondary' : 'default'} className={sale.type === 'WHOLESALE' ? 'bg-purple-100 text-purple-700 hover:bg-purple-200 border-none' : ''}>
+                          {sale.type === 'CASH' ? 'RETAIL' : sale.type}
+                        </Badge>
                         <Badge variant={sale.status === 'RETURNED' ? 'destructive' : 'success'} className="text-xs">{sale.status}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
