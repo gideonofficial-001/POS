@@ -32,8 +32,8 @@ const NewSale = () => {
   const [lpgModalOpen, setLpgModalOpen] = useState(false)
   const [selectedInvItem, setSelectedInvItem] = useState<any>(null)
   
-  // WhatsApp Generator State
-  const [invoiceReceipt, setInvoiceReceipt] = useState<{code: string, name: string, phone: string, total: number} | null>(null)
+  // FIXED: Added itemsStr to the TypeScript definition
+  const [invoiceReceipt, setInvoiceReceipt] = useState<{code: string, name: string, phone: string, total: number, itemsStr: string} | null>(null)
 
   const branchId = user?.branchId || ''
 
@@ -66,9 +66,9 @@ const NewSale = () => {
       if (variables.type === SaleType.INVOICE) {
         const customer = customers.find((c: any) => c.id === variables.customerId)
         
-        // Build the itemized list for WhatsApp
+        // FIXED: Using item.productId instead of item.id
         const itemsListStr = items.map(item => {
-          const lpgLabel = item.id.includes('REFILL') ? ' (Refill)' : item.id.includes('EMPTY_SHELL') ? ' (Empty Shell)' : item.id.includes('COMPLETE_SET') ? ' (Complete Set)' : '';
+          const lpgLabel = item.productId.includes('REFILL') ? ' (Refill)' : item.productId.includes('EMPTY_SHELL') ? ' (Empty Shell)' : item.productId.includes('COMPLETE_SET') ? ' (Complete Set)' : '';
           return `${item.quantity}x ${item.product.name}${lpgLabel}`;
         }).join('\n- ');
 
@@ -77,7 +77,7 @@ const NewSale = () => {
           name: customer?.name || 'Customer',
           phone: customer?.phone || '',
           total: getTotal() - (discount || 0),
-          itemsStr: itemsListStr // New field added
+          itemsStr: itemsListStr
         })
       } else {
         toast.success(`Sale completed! Code: ${response.data.saleCode}`)
@@ -92,7 +92,7 @@ const NewSale = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
-      queryClient.invalidateQueries({ queryKey: ['invoices'] }) // Added to refresh invoice list
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
     },
     onError: (error: any) => toast.error(error.response?.data?.message || 'Failed to create sale')
   })
@@ -106,7 +106,6 @@ const NewSale = () => {
     )
   }) || []
 
-  // Helper to safely switch sale types (prevents mixing retail and wholesale prices in cart)
   const handleTypeSwitch = (newType: SaleType) => {
     if (items.length > 0 && newType !== saleType) {
       if (window.confirm('Changing the sale type will clear your current cart. Do you want to proceed?')) {
@@ -232,7 +231,6 @@ const NewSale = () => {
                           setLpgModalOpen(true)
                         } else {
                           if (!isOutOfStock) {
-                            // Non-LPG products added straight to cart
                             addItem({ ...product, price: displayPrice }, 1)
                             setSearch('')
                           } else toast.error('Out of stock!')
@@ -411,7 +409,6 @@ const NewSale = () => {
 
             <Button 
               variant="outline" 
-              // Math.max fixes the negative display UI bug!
               className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`} 
               onClick={() => handleLpgSelect('EMPTY_SHELL')}
               disabled={selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null}
@@ -454,7 +451,7 @@ const NewSale = () => {
         </DialogContent>
       </Dialog>
 
-            {/* Invoice WhatsApp/SMS Generator Modal */}
+      {/* Invoice WhatsApp/SMS Generator Modal */}
       <Dialog open={!!invoiceReceipt} onOpenChange={() => setInvoiceReceipt(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
