@@ -106,6 +106,7 @@ const Login = () => {
       const response = await api.post('/auth/login', payload)
       const data = response.data
 
+      // Scenario A: Backend returns 200 OK but requires device auth
       if (data.requiresDeviceAuth) {
         localStorage.setItem('pendingAuthEmail', email)
         localStorage.setItem('deviceRequestId', data.deviceRequestId)
@@ -142,7 +143,18 @@ const Login = () => {
           navigate('/')
       }
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Login failed. Please try again.'
+      const errorData = err.response?.data
+
+      // Scenario B (THE FIX): Backend throws a 401/403 Error containing the device auth flag
+      if (errorData?.requiresDeviceAuth) {
+        localStorage.setItem('pendingAuthEmail', email)
+        localStorage.setItem('deviceRequestId', errorData.deviceRequestId)
+        toast.info('Unrecognized device. Authorization required.')
+        navigate('/device-auth')
+        return
+      }
+
+      const msg = errorData?.message || err.message || 'Login failed. Please try again.'
       const display = Array.isArray(msg) ? msg.join(' ') : msg
       setError(display)
       toast.error('Login Failed', { description: display })
