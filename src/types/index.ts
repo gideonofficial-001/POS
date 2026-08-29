@@ -19,6 +19,7 @@ export enum ProductType {
 
 export enum SaleType {
   CASH = 'CASH',
+  WHOLESALE = 'WHOLESALE',
   INVOICE = 'INVOICE',
 }
 
