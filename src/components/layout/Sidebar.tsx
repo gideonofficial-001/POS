@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, Building2, PackageSearch, UsersRound,
   ShoppingCart, FileText, RotateCcw, History, BarChart3,
   ClipboardList, Settings, LogOut, Bell, ArrowLeftRight,
-  Receipt, ChevronLeft, ChevronRight, X, Menu, CreditCard, Smartphone
+  Receipt, ChevronLeft, ChevronRight, X, Menu, Smartphone
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -34,6 +34,7 @@ const Sidebar = () => {
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
+        { path: '/admin/sales-history', icon: History, label: 'Sales History' }, // <-- ADDED
         { path: '/admin/transfers', icon: ArrowLeftRight, label: 'Transfers' },
         { path: '/admin/devices',   icon: Smartphone,    label: 'Devices' },
         { path: '/notifications',   icon: Bell,          label: 'Notifications' },
@@ -49,6 +50,7 @@ const Sidebar = () => {
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
+        { path: '/admin/sales-history', icon: History, label: 'Sales History' }, // <-- ADDED
         { path: '/manager/reports', icon: BarChart3, label: 'Reports' },
         { path: '/notifications', icon: Bell, label: 'Notifications' },
         { path: '/settings', icon: Settings, label: 'Settings' },
@@ -91,18 +93,10 @@ const Sidebar = () => {
             </div>
           )}
         </div>
-        {/* Mobile close */}
-        <button
-          onClick={() => setMobileOpen(false)}
-          className="lg:hidden p-2 hover:bg-muted rounded-lg"
-        >
+        <button onClick={() => setMobileOpen(false)} className="lg:hidden p-2 hover:bg-muted rounded-lg">
           <X className="w-5 h-5" />
         </button>
-        {/* Desktop collapse */}
-        <button
-          onClick={toggleCollapsed}
-          className="hidden lg:flex p-1.5 hover:bg-muted rounded-lg transition-colors"
-        >
+        <button onClick={toggleCollapsed} className="hidden lg:flex p-1.5 hover:bg-muted rounded-lg transition-colors">
           {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
       </div>
@@ -118,9 +112,7 @@ const Sidebar = () => {
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
-                    isActive
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   )
                 }
               >
@@ -134,10 +126,7 @@ const Sidebar = () => {
 
       {/* Footer */}
       <div className="p-3 border-t">
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 w-full transition-colors"
-        >
+        <button onClick={handleLogout} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 w-full transition-colors">
           <LogOut className="w-5 h-5 shrink-0" />
           {!collapsed && <span>Logout</span>}
         </button>
@@ -147,23 +136,11 @@ const Sidebar = () => {
 
   return (
     <>
-      {/* Mobile Overlay */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Mobile Toggle Button */}
-      <button
-        onClick={() => setMobileOpen(true)}
-        className="fixed top-4 left-4 z-30 lg:hidden p-2 bg-background border rounded-lg shadow-sm"
-      >
+      {mobileOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setMobileOpen(false)} />}
+      <button onClick={() => setMobileOpen(true)} className="fixed top-4 left-4 z-30 lg:hidden p-2 bg-background border rounded-lg shadow-sm">
         <Menu className="w-5 h-5" />
       </button>
 
-      {/* Sidebar */}
       <aside
         className={cn(
           'fixed left-0 top-0 h-full bg-background border-r flex flex-col z-50 transition-all duration-300',
