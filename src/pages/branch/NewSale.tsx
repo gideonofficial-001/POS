@@ -454,7 +454,7 @@ const NewSale = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Invoice WhatsApp/SMS Generator Modal */}
+            {/* Invoice WhatsApp/SMS Generator Modal */}
       <Dialog open={!!invoiceReceipt} onOpenChange={() => setInvoiceReceipt(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -464,17 +464,17 @@ const NewSale = () => {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
-              The invoice has been saved. Copy the message below to send to the customer and the admin via WhatsApp/SMS.
+              The invoice has been saved to the database. Copy the message below to send to the customer and admin.
             </p>
             <textarea 
               readOnly 
-              className="w-full h-32 p-3 bg-muted rounded-md text-sm border focus:outline-none"
-              value={`Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nPlease arrange payment. Thank you!`}
+              className="w-full h-48 p-3 bg-muted rounded-md text-sm border focus:outline-none resize-none"
+              value={`Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nItems:\n- ${invoiceReceipt?.itemsStr}\n\nPlease arrange payment. Thank you!`}
             />
             <Button 
               className="w-full bg-green-600 hover:bg-green-700 text-white"
               onClick={() => {
-                const msg = `Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nPlease arrange payment. Thank you!`
+                const msg = `Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nItems:\n- ${invoiceReceipt?.itemsStr}\n\nPlease arrange payment. Thank you!`
                 navigator.clipboard.writeText(msg)
                 toast.success('Message copied to clipboard!')
               }}
