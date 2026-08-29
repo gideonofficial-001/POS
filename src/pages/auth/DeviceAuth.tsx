@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { authApi } from '@/api'
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2, Shield } from 'lucide-react'
+import { Loader2, Shield, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 
 const DeviceAuth = () => {
@@ -17,6 +17,14 @@ const DeviceAuth = () => {
   const [error, setError] = useState('')
 
   const requestId = localStorage.getItem('deviceRequestId') || ''
+
+  // 1. Edge Case: Boot them back to login if they shouldn't be here
+  useEffect(() => {
+    if (!requestId) {
+      toast.error('No pending authorization found. Please log in again.')
+      navigate('/login')
+    }
+  }, [requestId, navigate])
 
   const verifyMutation = useMutation({
     mutationFn: async (data: { requestId: string; authorizationCode: string }) => {
@@ -55,12 +63,21 @@ const DeviceAuth = () => {
     setError('')
 
     if (!authCode || authCode.length !== 6) {
-      setError('Please enter the 6-digit authorization code')
+      setError('Please enter the full 6-digit authorization code')
       return
     }
 
     verifyMutation.mutate({ requestId, authorizationCode: authCode })
   }
+
+  const handleCancel = () => {
+    localStorage.removeItem('pendingAuthEmail')
+    localStorage.removeItem('deviceRequestId')
+    navigate('/login')
+  }
+
+  // If there's no requestId, don't render the form while the useEffect redirects
+  if (!requestId) return null; 
 
   return (
     <Card className="w-full shadow-xl">
@@ -88,6 +105,8 @@ const DeviceAuth = () => {
             <Input
               id="authCode"
               type="text"
+              inputMode="numeric" // 2. Mobile Keyboard Improvement
+              pattern="[0-9]*"
               placeholder="000000"
               maxLength={6}
               value={authCode}
@@ -107,9 +126,17 @@ const DeviceAuth = () => {
             )}
           </Button>
         </form>
-        <p className="text-xs text-center text-muted-foreground mt-4">
-          Contact your administrator if you haven't received the code.
-        </p>
+
+        {/* 3. The Escape Hatch */}
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <p className="text-xs text-center text-muted-foreground">
+            Contact your administrator if you haven't received the code.
+          </p>
+          <Button variant="ghost" size="sm" onClick={handleCancel} className="text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Login
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )
