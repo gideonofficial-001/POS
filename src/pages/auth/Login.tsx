@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Logo } from '@/components/Logo'
 import { useNavigate } from 'react-router-dom'
 import api from '@/api'
 import { useAuthStore } from '@/store'
@@ -17,6 +16,7 @@ import {
 import { toast } from 'sonner'
 import { MapPin, Loader2, ShieldAlert, AlertCircle } from 'lucide-react'
 import { generateDeviceFingerprint } from '@/lib/utils'
+import { Logo } from '@/components/Logo'
 
 interface LocationData {
   latitude: number
@@ -107,7 +107,6 @@ const Login = () => {
       const response = await api.post('/auth/login', payload)
       const data = response.data
 
-      // Scenario A: Backend returns 200 OK but requires device auth
       if (data.requiresDeviceAuth) {
         localStorage.setItem('pendingAuthEmail', email)
         localStorage.setItem('deviceRequestId', data.deviceRequestId)
@@ -146,7 +145,6 @@ const Login = () => {
     } catch (err: any) {
       const errorData = err.response?.data
 
-      // Scenario B (THE FIX): Backend throws a 401/403 Error containing the device auth flag
       if (errorData?.requiresDeviceAuth) {
         localStorage.setItem('pendingAuthEmail', email)
         localStorage.setItem('deviceRequestId', errorData.deviceRequestId)
@@ -165,9 +163,9 @@ const Login = () => {
   }
 
   return (
-    <CardHeader className="space-y-1">
+    <Card className="w-full shadow-xl">
+      <CardHeader className="space-y-1">
         <div className="flex items-center justify-center mb-4">
-          {/* Replaced the blue box with our new Logo */}
           <Logo size="lg" variant="color" showText={false} />
         </div>
         <CardTitle className="text-2xl text-center">Welcome Back</CardTitle>
