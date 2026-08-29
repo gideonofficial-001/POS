@@ -148,6 +148,11 @@ function App() {
             <Customers />
           </ProtectedRoute>
         } />
+        <Route path="/admin/invoices" element={
+          <ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}>
+            <Invoices />
+          </ProtectedRoute>
+        } />
         <Route path="/manager/dashboard" element={
           <ProtectedRoute allowedRoles={[UserRole.OVERALL_MANAGER]}>
             <ManagerDashboard />
