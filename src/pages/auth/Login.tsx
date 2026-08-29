@@ -165,12 +165,10 @@ const Login = () => {
   }
 
   return (
-    <Card className="w-full shadow-xl">
-      <CardHeader className="space-y-1">
+    <CardHeader className="space-y-1">
         <div className="flex items-center justify-center mb-4">
-          <div className="w-16 h-16 bg-primary rounded-xl flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-2xl">N</span>
-          </div>
+          {/* Replaced the blue box with our new Logo */}
+          <Logo size="lg" variant="color" showText={false} />
         </div>
         <CardTitle className="text-2xl text-center">Welcome Back</CardTitle>
         <CardDescription className="text-center">
