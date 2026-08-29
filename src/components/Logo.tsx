@@ -1,5 +1,5 @@
 import { cn } from '../lib/utils';
-
+import { Logo } from '@/components/Logo'
 interface LogoProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -41,25 +41,21 @@ export function Logo({ className, size = 'md', variant = 'color', showText = tru
   const c = colors[variant];
 
   return (
-    <div className={cn('flex items-center gap-3', className)}>
-      {/* Icon */}
-      <div className="relative flex-shrink-0">
-        {variant === 'color' && (
-          <div
-            className="absolute inset-0 rounded-xl opacity-20 blur-md"
-            style={{
-              background: 'linear-gradient(135deg, #f97316, #ea580c)',
-              transform: 'scale(1.3)',
-            }}
-          />
-        )}
-        <svg
-          width={iconSize}
-          height={iconSize}
-          viewBox="0 0 64 64"
-          className="relative"
-          style={{ filter: variant === 'light' ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'none' }}
-        >
+    <div className={cn('flex items-center gap-3', className)}
+     {/* Logo */}
+      <div className="flex items-center justify-between p-4 border-b">
+        <div className="flex items-center gap-3 overflow-hidden">
+          <Logo size="sm" variant="color" showText={!collapsed} />
+        </div>
+        {/* Mobile close */}
+        <button onClick={() => setMobileOpen(false)} className="lg:hidden p-2 hover:bg-muted rounded-lg shrink-0">
+          <X className="w-5 h-5" />
+        </button>
+        {/* Desktop collapse */}
+        <button onClick={toggleCollapsed} className="hidden lg:flex p-1.5 hover:bg-muted rounded-lg transition-colors shrink-0">
+          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        </button>
+      </div>
           {/* Outer Lightning Bolt */}
           <polygon 
             points="38,4 16,34 32,34 24,60 50,24 34,24" 
