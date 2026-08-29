@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Logo } from '@/components/Logo'
 import { useNavigate } from 'react-router-dom'
 import api from '@/api'
 import { useAuthStore } from '@/store'
