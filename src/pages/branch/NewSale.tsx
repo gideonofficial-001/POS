@@ -65,11 +65,19 @@ const NewSale = () => {
     onSuccess: (response, variables) => {
       if (variables.type === SaleType.INVOICE) {
         const customer = customers.find((c: any) => c.id === variables.customerId)
+        
+        // Build the itemized list for WhatsApp
+        const itemsListStr = items.map(item => {
+          const lpgLabel = item.id.includes('REFILL') ? ' (Refill)' : item.id.includes('EMPTY_SHELL') ? ' (Empty Shell)' : item.id.includes('COMPLETE_SET') ? ' (Complete Set)' : '';
+          return `${item.quantity}x ${item.product.name}${lpgLabel}`;
+        }).join('\n- ');
+
         setInvoiceReceipt({
           code: response.data.saleCode,
           name: customer?.name || 'Customer',
           phone: customer?.phone || '',
-          total: getTotal() - (discount || 0)
+          total: getTotal() - (discount || 0),
+          itemsStr: itemsListStr // New field added
         })
       } else {
         toast.success(`Sale completed! Code: ${response.data.saleCode}`)
@@ -84,6 +92,7 @@ const NewSale = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['invoices'] }) // Added to refresh invoice list
     },
     onError: (error: any) => toast.error(error.response?.data?.message || 'Failed to create sale')
   })
