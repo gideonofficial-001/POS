@@ -51,10 +51,9 @@ const Settings = () => {
     e.preventDefault()
     setIsUpdatingProfile(true)
     try {
-      // Assuming your backend has a route like PATCH /users/me or PUT /users/:id
-      const res = await api.patch(`/users/${user?.id}`, { firstName, lastName })
+      // 🚀 Changed from `/users/${user?.id}` to `/users/me/profile`
+      const res = await api.patch('/users/me/profile', { firstName, lastName })
       
-      // Update local storage/state with new name
       if (user) {
         setAuth({ ...user, firstName, lastName }, localStorage.getItem('access_token') || '')
       }
@@ -77,8 +76,8 @@ const Settings = () => {
 
     setIsUpdatingPassword(true)
     try {
-      // Assuming your backend has a route like PATCH /users/me/password
-      await api.patch(`/users/${user?.id}/password`, { 
+      // 🚀 Changed from `/users/${user?.id}/password` to `/users/me/password`
+      await api.patch('/users/me/password', { 
         currentPassword, 
         newPassword 
       })
