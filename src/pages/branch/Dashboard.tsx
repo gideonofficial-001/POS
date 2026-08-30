@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { reportsApi, notificationsApi } from '@/api'
+import { reportsApi, notificationsApi, invoicesApi } from '@/api'
 import { useAuthStore } from '@/store'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -9,6 +9,7 @@ import { ShoppingCart, TrendingUp, FileText, Receipt, AlertTriangle, ArrowLeftRi
 const BranchDashboard = () => {
   const { user } = useAuthStore()
 
+  // 1. Existing general stats
   const { data: stats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
@@ -17,6 +18,7 @@ const BranchDashboard = () => {
     },
   })
 
+  // 2. Pending approvals (transfers/expenses)
   const { data: pendingData } = useQuery({
     queryKey: ['pending-approvals'],
     queryFn: async () => {
@@ -25,7 +27,23 @@ const BranchDashboard = () => {
     },
   })
 
+  // 🚀 THE FIX: Fetch invoices specifically for this branch
+  const { data: branchInvoices } = useQuery({
+    queryKey: ['branch-invoices', user?.branchId],
+    queryFn: async () => {
+      const response = await invoicesApi.getAll({ branchId: user?.branchId })
+      return response.data
+    },
+    enabled: !!user?.branchId
+  })
+
+  // Calculate strict branch metrics
   const branchSales = stats?.recentSales?.filter((s: any) => s.branchId === user?.branchId)
+  
+  // Count only invoices that are PENDING or OVERDUE for this specific branch
+  const myPendingInvoices = branchInvoices?.filter(
+    (inv: any) => inv.status === 'PENDING' || inv.status === 'OVERDUE'
+  ).length || 0
 
   return (
     <div className="space-y-6">
@@ -80,7 +98,8 @@ const BranchDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">My Invoices</p>
-                <p className="text-2xl font-bold">{stats?.pendingInvoices || 0}</p>
+                {/* 🚀 NOW USING THE LOCAL BRANCH COUNT */}
+                <p className="text-2xl font-bold">{myPendingInvoices}</p>
               </div>
               <div className="p-3 rounded-lg bg-yellow-50">
                 <FileText className="w-6 h-6 text-yellow-600" />
@@ -117,7 +136,7 @@ const BranchDashboard = () => {
                   <div>
                     <p className="font-medium">{sale.saleCode}</p>
                     <p className="text-sm text-muted-foreground">
-                      {sale.items?.length} item(s) | {sale.customerName || 'Walk-in'}
+                      {sale.items?.length} item(s) | {sale.customer?.name || 'Walk-in'}
                     </p>
                   </div>
                   <div className="text-right">
