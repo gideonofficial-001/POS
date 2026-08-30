@@ -1,22 +1,29 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { branchesApi } from '@/api'
+import { branchesApi, usersApi } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Eye, Power } from 'lucide-react'
+import { Plus, Edit, Trash2, MapPin, Store } from 'lucide-react'
 import { toast } from 'sonner'
 
 const Branches = () => {
   const queryClient = useQueryClient()
+  
+  // Modals state
   const [showCreate, setShowCreate] = useState(false)
-  const [showDetail, setShowDetail] = useState<string | null>(null)
-  const [newBranch, setNewBranch] = useState({ name: '', code: '', address: '', phone: '', email: '' })
+  const [showEdit, setShowEdit] = useState<any>(null)
+  
+  // Form states
+  const [newBranch, setNewBranch] = useState({ name: '', code: '', address: '', phone: '', email: '', managerId: 'none' })
+  const [editForm, setEditForm] = useState({ name: '', code: '', address: '', phone: '', email: '', managerId: 'none' })
 
+  // Fetch branches
   const { data: branches, isLoading } = useQuery({
     queryKey: ['branches'],
     queryFn: async () => {
@@ -25,22 +32,30 @@ const Branches = () => {
     },
   })
 
-  const { data: branchDetail } = useQuery({
-    queryKey: ['branch', showDetail],
+  // Fetch users (to populate the manager dropdown)
+  const { data: users } = useQuery({
+    queryKey: ['users'],
     queryFn: async () => {
-      if (!showDetail) return null
-      const response = await branchesApi.getById(showDetail)
+      const response = await usersApi.getAll()
       return response.data
     },
-    enabled: !!showDetail,
   })
 
+  // Filter for potential managers (Branch Managers or Overall Managers)
+  const availableManagers = users?.filter((u: any) => 
+    u.role === 'BRANCH_MANAGER' || u.role === 'OVERALL_MANAGER'
+  ) || []
+
   const createMutation = useMutation({
-    mutationFn: (data: any) => branchesApi.create(data),
+    mutationFn: (data: any) => {
+      const payload = { ...data }
+      if (payload.managerId === 'none') delete payload.managerId
+      return branchesApi.create(payload)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['branches'] })
       setShowCreate(false)
-      setNewBranch({ name: '', code: '', address: '', phone: '', email: '' })
+      setNewBranch({ name: '', code: '', address: '', phone: '', email: '', managerId: 'none' })
       toast.success('Branch created successfully')
     },
     onError: (error: any) => {
@@ -48,20 +63,58 @@ const Branches = () => {
     },
   })
 
-  const toggleMutation = useMutation({
-    mutationFn: (id: string) => branchesApi.toggleStatus(id),
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => {
+      const payload = { ...data }
+      if (payload.managerId === 'none') payload.managerId = null
+      return branchesApi.update(id, payload) // Assumes you have branchesApi.update in your api.ts
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['branches'] })
-      toast.success('Branch status updated')
+      setShowEdit(null)
+      toast.success('Branch updated successfully')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to update branch')
     },
   })
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newBranch.name || !newBranch.code) {
+      toast.error('Branch Name and Code are required')
+      return
+    }
+    createMutation.mutate(newBranch)
+  }
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editForm.name || !editForm.code) {
+      toast.error('Branch Name and Code are required')
+      return
+    }
+    editMutation.mutate({ id: showEdit.id, data: editForm })
+  }
+
+  const openEditModal = (branch: any) => {
+    setShowEdit(branch)
+    setEditForm({
+      name: branch.name,
+      code: branch.code,
+      address: branch.address || '',
+      phone: branch.phone || '',
+      email: branch.email || '',
+      managerId: branch.managerId || 'none'
+    })
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Branches</h1>
-          <p className="text-muted-foreground">Manage your business branches</p>
+          <p className="text-muted-foreground">Manage your physical store locations</p>
         </div>
         <Button onClick={() => setShowCreate(true)}>
           <Plus className="w-4 h-4 mr-2" />
@@ -69,91 +122,164 @@ const Branches = () => {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {branches?.map((branch: any) => (
-          <Card key={branch.id} className={`hover:shadow-md transition-shadow ${!branch.isActive ? 'opacity-60' : ''}`}>
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h3 className="font-bold">{branch.name}</h3>
-                  <p className="text-sm text-muted-foreground">{branch.code}</p>
-                </div>
-                <Badge variant={branch.isActive ? 'success' : 'secondary'}>
-                  {branch.isActive ? 'Active' : 'Inactive'}
-                </Badge>
-              </div>
-              <p className="text-sm text-muted-foreground mb-3">{branch.address}</p>
-              <div className="flex items-center justify-between text-sm">
-                <span>{branch._count?.users || 0} staff</span>
-                <span>{branch._count?.inventory || 0} products</span>
-              </div>
-              <div className="flex gap-2 mt-4">
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => setShowDetail(branch.id)}>
-                  <Eye className="w-4 h-4 mr-1" /> View
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => toggleMutation.mutate(branch.id)}>
-                  <Power className="w-4 h-4" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="p-8 text-center text-muted-foreground">Loading branches...</div>
+          ) : branches?.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">No branches found</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Branch Name</TableHead>
+                  <TableHead>Manager</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {branches?.map((branch: any) => (
+                  <TableRow key={branch.id}>
+                    <TableCell className="font-mono text-sm font-bold text-primary">{branch.code}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <Store className="w-4 h-4 text-muted-foreground" />
+                        {branch.name}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {branch.manager ? (
+                        <span className="text-sm">{branch.manager.firstName} {branch.manager.lastName}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">Unassigned</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <MapPin className="w-3 h-3" />
+                        {branch.address || 'N/A'}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={branch.isActive ? "success" : "secondary"}>
+                        {branch.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" title="Edit Branch" onClick={() => openEditModal(branch)}>
+                          <Edit className="w-4 h-4 text-blue-600" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-      {branches?.length === 0 && !isLoading && (
-        <div className="text-center py-12 text-muted-foreground">
-          <p>No branches found. Create your first branch to get started.</p>
-        </div>
-      )}
-
-      {/* Create Dialog */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      {/* Edit Branch Dialog */}
+      <Dialog open={!!showEdit} onOpenChange={() => setShowEdit(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Create New Branch</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate(newBranch) }} className="space-y-4">
-            <div className="space-y-2"><Label>Name *</Label><Input value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} /></div>
-            <div className="space-y-2"><Label>Code *</Label><Input value={newBranch.code} onChange={e => setNewBranch({...newBranch, code: e.target.value})} placeholder="BR01" /></div>
-            <div className="space-y-2"><Label>Address *</Label><Input value={newBranch.address} onChange={e => setNewBranch({...newBranch, address: e.target.value})} /></div>
-            <div className="space-y-2"><Label>Phone *</Label><Input value={newBranch.phone} onChange={e => setNewBranch({...newBranch, phone: e.target.value})} /></div>
-            <div className="space-y-2"><Label>Email</Label><Input type="email" value={newBranch.email} onChange={e => setNewBranch({...newBranch, email: e.target.value})} /></div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-              <Button type="submit" disabled={createMutation.isPending}>Create Branch</Button>
+          <DialogHeader>
+            <DialogTitle>Edit Branch Details</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4 pt-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Branch Name *</Label>
+                <Input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} required />
+              </div>
+              <div className="space-y-2">
+                <Label>Branch Code *</Label>
+                <Input value={editForm.code} onChange={e => setEditForm({...editForm, code: e.target.value})} required />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Physical Address</Label>
+              <Input value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Contact Phone</Label>
+                <Input value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Branch Manager</Label>
+                <Select value={editForm.managerId} onValueChange={v => setEditForm({...editForm, managerId: v})}>
+                  <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">-- Unassigned --</SelectItem>
+                    {availableManagers.map((m: any) => (
+                      <SelectItem key={m.id} value={m.id}>{m.firstName} {m.lastName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => setShowEdit(null)}>Cancel</Button>
+              <Button type="submit" disabled={editMutation.isPending}>
+                {editMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Detail Dialog */}
-      <Dialog open={!!showDetail} onOpenChange={() => setShowDetail(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{branchDetail?.name}</DialogTitle></DialogHeader>
-          {branchDetail && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><span className="text-muted-foreground">Code:</span> {branchDetail.code}</div>
-                <div><span className="text-muted-foreground">Status:</span> <Badge variant={branchDetail.isActive ? 'success' : 'secondary'}>{branchDetail.isActive ? 'Active' : 'Inactive'}</Badge></div>
-                <div><span className="text-muted-foreground">Address:</span> {branchDetail.address}</div>
-                <div><span className="text-muted-foreground">Phone:</span> {branchDetail.phone}</div>
-                <div><span className="text-muted-foreground">Manager:</span> {branchDetail.manager?.firstName ? `${branchDetail.manager.firstName} ${branchDetail.manager.lastName}` : 'Unassigned'}</div>
+      {/* Create Dialog */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Branch</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreate} className="space-y-4 pt-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Branch Name *</Label>
+                <Input value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} required />
               </div>
-              <div>
-                <h4 className="font-medium mb-2">Inventory</h4>
-                {branchDetail.inventory?.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No inventory items</p>
-                ) : (
-                  <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {branchDetail.inventory?.map((inv: any) => (
-                      <div key={inv.id} className="flex justify-between text-sm p-2 bg-muted rounded">
-                        <span>{inv.product?.name}</span>
-                        <span className="font-medium">Qty: {inv.quantity}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div className="space-y-2">
+                <Label>Branch Code *</Label>
+                <Input value={newBranch.code} onChange={e => setNewBranch({...newBranch, code: e.target.value})} required />
               </div>
             </div>
-          )}
+            
+            <div className="space-y-2">
+              <Label>Physical Address</Label>
+              <Input value={newBranch.address} onChange={e => setNewBranch({...newBranch, address: e.target.value})} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Contact Phone</Label>
+                <Input value={newBranch.phone} onChange={e => setNewBranch({...newBranch, phone: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Assign Manager (Optional)</Label>
+                <Select value={newBranch.managerId} onValueChange={v => setNewBranch({...newBranch, managerId: v})}>
+                  <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">-- Unassigned --</SelectItem>
+                    {availableManagers.map((m: any) => (
+                      <SelectItem key={m.id} value={m.id}>{m.firstName} {m.lastName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+              <Button type="submit" disabled={createMutation.isPending}>Create Branch</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
