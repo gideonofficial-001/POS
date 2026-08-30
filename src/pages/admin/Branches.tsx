@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Plus, Edit, Trash2, MapPin, Store } from 'lucide-react'
+import { Plus, Edit, MapPin, Store } from 'lucide-react'
 import { toast } from 'sonner'
 
 const Branches = () => {
@@ -64,39 +64,35 @@ const Branches = () => {
   })
 
   const editMutation = useMutation({
-  mutationFn: ({ id, data }: { id: string; data: any }) => {
-    const payload = { ...data };
+    mutationFn: ({ id, data }: { id: string; data: any }) => {
+      const payload = { ...data };
 
-    // The branch code is immutable.
-    // Remove it before sending the update request because
-    // the backend DTO does not allow "code" during updates.
-    delete payload.code;
+      // The branch code is immutable. Remove it before sending to backend.
+      delete payload.code;
 
-    // Convert "none" back to null for the backend.
-    if (payload.managerId === 'none') {
-      payload.managerId = null;
-    }
-
-    return branchesApi.update(id, payload);
-  },
-
-  onSuccess: () => {
-    toast.success('Branch updated successfully');
-    setIsEditDialogOpen(false);
-    queryClient.invalidateQueries({ queryKey: ['branches'] });
-  },
-
-  onError: (error: any) => {
-    toast.error(
-      'Failed to update branch',
-      {
-        description:
-          error?.response?.data?.message ||
-          'Something went wrong while updating the branch.',
+      // Convert "none" back to null for the backend.
+      if (payload.managerId === 'none') {
+        payload.managerId = null;
       }
-    );
-  },
-});
+
+      return branchesApi.update(id, payload);
+    },
+    onSuccess: () => {
+      toast.success('Branch updated successfully');
+      setShowEdit(null); // Fixed the undefined function error here!
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
+    },
+    onError: (error: any) => {
+      toast.error(
+        'Failed to update branch',
+        {
+          description:
+            error?.response?.data?.message ||
+            'Something went wrong while updating the branch.',
+        }
+      );
+    },
+  });
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
@@ -109,8 +105,8 @@ const Branches = () => {
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!editForm.name || !editForm.code) {
-      toast.error('Branch Name and Code are required')
+    if (!editForm.name) {
+      toast.error('Branch Name is required')
       return
     }
     editMutation.mutate({ id: showEdit.id, data: editForm })
@@ -215,8 +211,9 @@ const Branches = () => {
                 <Input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} required />
               </div>
               <div className="space-y-2">
-                <Label>Branch Code *</Label>
-                <Input value={editForm.code} onChange={e => setEditForm({...editForm, code: e.target.value})} required />
+                <Label>Branch Code</Label>
+                <Input value={editForm.code} disabled className="bg-muted cursor-not-allowed" />
+                <p className="text-[10px] text-muted-foreground">Branch codes cannot be changed.</p>
               </div>
             </div>
             
@@ -260,20 +257,16 @@ const Branches = () => {
             <DialogTitle>Create New Branch</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4 pt-2">
-            <div className="space-y-2">
-  <Label htmlFor="edit-branch-code">Branch Code</Label>
-
-  <Input
-    id="edit-branch-code"
-    value={editForm.code}
-    disabled
-    className="bg-muted cursor-not-allowed"
-  />
-
-  <p className="text-[10px] text-muted-foreground">
-    Branch codes cannot be changed.
-  </p>
-</div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Branch Name *</Label>
+                <Input value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} required />
+              </div>
+              <div className="space-y-2">
+                <Label>Branch Code *</Label>
+                <Input value={newBranch.code} onChange={e => setNewBranch({...newBranch, code: e.target.value})} required />
+              </div>
+            </div>
             
             <div className="space-y-2">
               <Label>Physical Address</Label>
