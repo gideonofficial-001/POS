@@ -6,11 +6,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { UserRole, UserStatus } from '@/types'
-import { Plus, Trash2, UserCheck, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, UserCheck, AlertTriangle, KeySquare } from 'lucide-react'
 import { toast } from 'sonner'
 
 const Users = () => {
@@ -19,6 +19,10 @@ const Users = () => {
   const [showDelete, setShowDelete] = useState<string | null>(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [newUser, setNewUser] = useState({ email: '', password: '', firstName: '', lastName: '', role: '', branchId: '' })
+
+  // 🚀 NEW: State for editing credentials
+  const [editUser, setEditUser] = useState<any>(null)
+  const [editForm, setEditForm] = useState({ email: '', newPassword: '' })
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
@@ -62,6 +66,19 @@ const Users = () => {
     },
   })
 
+  // 🚀 NEW: Mutation for updating credentials
+  const editCredentialsMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => usersApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setEditUser(null)
+      toast.success('User credentials updated successfully')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to update user credentials')
+    },
+  })
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
     if (!newUser.email || !newUser.password || !newUser.firstName || !newUser.lastName || !newUser.role) {
@@ -69,6 +86,25 @@ const Users = () => {
       return
     }
     createMutation.mutate(newUser)
+  }
+
+  // 🚀 NEW: Handler for submitting edited credentials
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editForm.email) return toast.error('Email is required')
+
+    const updateData: any = { email: editForm.email }
+    if (editForm.newPassword) {
+      updateData.password = editForm.newPassword // The backend will intercept and hash this
+    }
+
+    editCredentialsMutation.mutate({ id: editUser.id, data: updateData })
+  }
+
+  // 🚀 NEW: Open edit modal and populate data
+  const openEditModal = (user: any) => {
+    setEditUser(user)
+    setEditForm({ email: user.email, newPassword: '' })
   }
 
   const getRoleBadge = (role: string) => {
@@ -94,7 +130,7 @@ const Users = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Users</h1>
-          <p className="text-muted-foreground">Manage system users</p>
+          <p className="text-muted-foreground">Manage system users, roles, and credentials</p>
         </div>
         <Button onClick={() => setShowCreate(true)}>
           <Plus className="w-4 h-4 mr-2" />
@@ -139,6 +175,17 @@ const Users = () => {
                             <UserCheck className="w-4 h-4 text-green-600" />
                           </Button>
                         )}
+                        
+                        {/* 🚀 NEW: Edit Credentials Button */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Edit Email & Password"
+                          onClick={() => openEditModal(user)}
+                        >
+                          <KeySquare className="w-4 h-4 text-blue-600" />
+                        </Button>
+
                         {user.role !== UserRole.SUPER_ADMIN && (
                           <Button
                             variant="ghost"
@@ -157,6 +204,47 @@ const Users = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* 🚀 NEW: Edit Credentials Dialog */}
+      <Dialog open={!!editUser} onOpenChange={() => setEditUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit User Credentials</DialogTitle>
+            <DialogDescription>
+              Updating credentials for <span className="font-bold text-foreground">{editUser?.firstName} {editUser?.lastName}</span>
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Email Address</Label>
+              <Input 
+                type="email" 
+                value={editForm.email} 
+                onChange={e => setEditForm({...editForm, email: e.target.value})} 
+                required 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Force Password Reset</Label>
+              <Input 
+                type="text" 
+                placeholder="Leave blank to keep current password..." 
+                value={editForm.newPassword} 
+                onChange={e => setEditForm({...editForm, newPassword: e.target.value})} 
+              />
+              <p className="text-[10px] text-muted-foreground pt-1">
+                Leave blank if you only want to change the email. Overwriting the password will immediately replace their old one.
+              </p>
+            </div>
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => setEditUser(null)}>Cancel</Button>
+              <Button type="submit" disabled={editCredentialsMutation.isPending}>
+                {editCredentialsMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
