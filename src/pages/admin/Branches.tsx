@@ -64,20 +64,39 @@ const Branches = () => {
   })
 
   const editMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => {
-      const payload = { ...data }
-      if (payload.managerId === 'none') payload.managerId = null
-      return branchesApi.update(id, payload) // Assumes you have branchesApi.update in your api.ts
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['branches'] })
-      setShowEdit(null)
-      toast.success('Branch updated successfully')
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Failed to update branch')
-    },
-  })
+  mutationFn: ({ id, data }: { id: string; data: any }) => {
+    const payload = { ...data };
+
+    // The branch code is immutable.
+    // Remove it before sending the update request because
+    // the backend DTO does not allow "code" during updates.
+    delete payload.code;
+
+    // Convert "none" back to null for the backend.
+    if (payload.managerId === 'none') {
+      payload.managerId = null;
+    }
+
+    return branchesApi.update(id, payload);
+  },
+
+  onSuccess: () => {
+    toast.success('Branch updated successfully');
+    setIsEditDialogOpen(false);
+    queryClient.invalidateQueries({ queryKey: ['branches'] });
+  },
+
+  onError: (error: any) => {
+    toast.error(
+      'Failed to update branch',
+      {
+        description:
+          error?.response?.data?.message ||
+          'Something went wrong while updating the branch.',
+      }
+    );
+  },
+});
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
@@ -241,16 +260,20 @@ const Branches = () => {
             <DialogTitle>Create New Branch</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4 pt-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Branch Name *</Label>
-                <Input value={newBranch.name} onChange={e => setNewBranch({...newBranch, name: e.target.value})} required />
-              </div>
-              <div className="space-y-2">
-                <Label>Branch Code *</Label>
-                <Input value={newBranch.code} onChange={e => setNewBranch({...newBranch, code: e.target.value})} required />
-              </div>
-            </div>
+            <div className="space-y-2">
+  <Label htmlFor="edit-branch-code">Branch Code</Label>
+
+  <Input
+    id="edit-branch-code"
+    value={editForm.code}
+    disabled
+    className="bg-muted cursor-not-allowed"
+  />
+
+  <p className="text-[10px] text-muted-foreground">
+    Branch codes cannot be changed.
+  </p>
+</div>
             
             <div className="space-y-2">
               <Label>Physical Address</Label>
