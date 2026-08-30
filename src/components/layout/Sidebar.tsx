@@ -37,6 +37,7 @@ const Sidebar = () => {
         { path: '/admin/sales-history', icon: History, label: 'Sales History' },
         { path: '/admin/transfers', icon: ArrowLeftRight, label: 'Transfers' },
         { path: '/admin/devices',   icon: Smartphone,    label: 'Devices' },
+        { path: '/admin/reports',   icon: BarChart3,     label: 'Reports' },
         { path: '/notifications',   icon: Bell,          label: 'Notifications' },
         { path: '/admin/audit-logs', icon: ClipboardList, label: 'Audit Logs' },
         { path: '/settings', icon: Settings, label: 'Settings' },
@@ -100,7 +101,7 @@ const Sidebar = () => {
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
-                    isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    isActive ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   )
                 }
               >
