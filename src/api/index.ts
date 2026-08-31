@@ -93,16 +93,43 @@ export const branchesApi = {
 
 // ── Products ──────────────────────────────────────────────────────────────────
 export const productsApi = {
-  getAll: (params?: any) => api.get('/products', { params }),
-  getById: (id: string) => api.get(`/products/${id}`),
-  create: (data: any) => api.post('/products', data),
-  update: (id: string, data: any) => api.patch(`/products/${id}`, data),
-  delete: (id: string) => api.delete(`/products/${id}`),
-  toggleStatus: (id: string) => api.patch(`/products/${id}/toggle`),
-  getCategories: () => api.get('/products/categories'),
-  createCategory: (name: string, description?: string) =>
-    api.post('/products/categories', { name, description }),
-  deleteCategory: (id: string) => api.delete(`/products/categories/${id}`),
+  getAll: (params?: any) =>
+    api.get('/products', { params }),
+
+  getById: (id: string) =>
+    api.get(`/products/${id}`),
+
+  create: (data: any) =>
+    api.post('/products', data),
+
+  update: (id: string, data: any) =>
+    api.patch(`/products/${id}`, data),
+
+  /**
+   * Product deletion is handled through inventory so the
+   * backend can determine whether this is a LOCAL or GLOBAL
+   * deletion based on the authenticated user and branch.
+   */
+  delete: (inventoryId: string) =>
+    api.delete(`/inventory/${inventoryId}`),
+
+  toggleStatus: (id: string) =>
+    api.patch(`/products/${id}/toggle`),
+
+  getCategories: () =>
+    api.get('/products/categories'),
+
+  createCategory: (
+    name: string,
+    description?: string,
+  ) =>
+    api.post('/products/categories', {
+      name,
+      description,
+    }),
+
+  deleteCategory: (id: string) =>
+    api.delete(`/products/categories/${id}`),
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
