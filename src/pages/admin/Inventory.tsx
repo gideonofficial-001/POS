@@ -99,9 +99,40 @@ const Inventory = () => {
   })
 
   const deleteProductMutation = useMutation({
-    mutationFn: async (productId: string) => await productsApi.delete(productId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
-  })
+  mutationFn: async (inventoryId: string) => {
+    return await productsApi.delete(inventoryId)
+  },
+
+  onSuccess: (response) => {
+    const result = response.data
+
+    queryClient.invalidateQueries({
+      queryKey: ['inventory', activeBranchId],
+    })
+
+    queryClient.invalidateQueries({
+      queryKey: ['inventory'],
+    })
+
+    queryClient.invalidateQueries({
+      queryKey: ['products'],
+    })
+
+    queryClient.invalidateQueries({
+      queryKey: ['categories'],
+    })
+
+    alert(result.message)
+  },
+
+  onError: (error: any) => {
+    alert(
+      error.response?.data?.message ||
+      error.message ||
+      'Failed to delete product',
+    )
+  },
+})
 
   const deleteCategoryMutation = useMutation({
     mutationFn: async (categoryId: string) => await productsApi.deleteCategory(categoryId),
