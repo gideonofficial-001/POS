@@ -150,6 +150,8 @@ export const inventoryApi = {
   getLowStock: () => api.get('/inventory/low-stock'),
   getMovements: (params?: any) => api.get('/inventory/movements', { params }),
 }
+delete: (id: string) => api.delete(`/inventory/${id}`),
+}
 
 // ── Customers ─────────────────────────────────────────────────────────────────
 export const customersApi = {
