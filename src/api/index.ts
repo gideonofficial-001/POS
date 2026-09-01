@@ -31,10 +31,6 @@ api.interceptors.response.use(
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export const authApi = {
-  /**
-   * Login — accepts optional GPS coordinates and device info alongside credentials.
-   * deviceFingerprint is still required for the existing device-auth flow.
-   */
   login: (
     email: string,
     password: string,
@@ -69,8 +65,6 @@ export const usersApi = {
   delete: (id: string, confirmationText: string) =>
     api.delete(`/users/${id}?confirmation=${encodeURIComponent(confirmationText)}`),
   getStats: () => api.get('/users/stats'),
-
-  // Login activity endpoints (new)
   getLoginHistory: (userId: string, days = 30) =>
     api.get(`/users/${userId}/login-history`, { params: { days } }),
   getSuspiciousLogins: (days = 7) =>
@@ -93,43 +87,16 @@ export const branchesApi = {
 
 // ── Products ──────────────────────────────────────────────────────────────────
 export const productsApi = {
-  getAll: (params?: any) =>
-    api.get('/products', { params }),
-
-  getById: (id: string) =>
-    api.get(`/products/${id}`),
-
-  create: (data: any) =>
-    api.post('/products', data),
-
-  update: (id: string, data: any) =>
-    api.patch(`/products/${id}`, data),
-
-  /**
-   * Product deletion is handled through inventory so the
-   * backend can determine whether this is a LOCAL or GLOBAL
-   * deletion based on the authenticated user and branch.
-   */
-  delete: (inventoryId: string) =>
-    api.delete(`/inventory/${inventoryId}`),
-
-  toggleStatus: (id: string) =>
-    api.patch(`/products/${id}/toggle`),
-
-  getCategories: () =>
-    api.get('/products/categories'),
-
-  createCategory: (
-    name: string,
-    description?: string,
-  ) =>
-    api.post('/products/categories', {
-      name,
-      description,
-    }),
-
-  deleteCategory: (id: string) =>
-    api.delete(`/products/categories/${id}`),
+  getAll: (params?: any) => api.get('/products', { params }),
+  getById: (id: string) => api.get(`/products/${id}`),
+  create: (data: any) => api.post('/products', data),
+  update: (id: string, data: any) => api.patch(`/products/${id}`, data),
+  delete: (id: string) => api.delete(`/products/${id}`),
+  toggleStatus: (id: string) => api.patch(`/products/${id}/toggle`),
+  getCategories: () => api.get('/products/categories'),
+  createCategory: (name: string, description?: string) =>
+    api.post('/products/categories', { name, description }),
+  deleteCategory: (id: string) => api.delete(`/products/categories/${id}`),
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
@@ -149,8 +116,7 @@ export const inventoryApi = {
   ) => api.post(`/inventory/${id}/adjust`, payload),
   getLowStock: () => api.get('/inventory/low-stock'),
   getMovements: (params?: any) => api.get('/inventory/movements', { params }),
-}
-delete: (id: string) => api.delete(`/inventory/${id}`),
+  delete: (id: string) => api.delete(`/inventory/${id}`), // 🚀 Fixed comma syntax here
 }
 
 // ── Customers ─────────────────────────────────────────────────────────────────
@@ -162,7 +128,7 @@ export const customersApi = {
   toggleStatus: (id: string) => api.patch(`/customers/${id}/toggle`),
   getOutstandingBalances: () => api.get('/customers/outstanding-balances'),
   delete: (id: string) => api.delete(`/customers/${id}`), 
-  }
+}
 
 // ── Sales ─────────────────────────────────────────────────────────────────────
 export const salesApi = {
@@ -205,13 +171,8 @@ export const expensesApi = {
     api.patch(`/expenses/${id}/reject`, { rejectionReason }),
 }
 
-// ── Transfers (v2 — per-item approval) ───────────────────────────────────────
-//
-// New routes are at /inventory/transfers (served by InventoryModule).
-// The old /transfers/* routes (TransfersModule) are kept as `legacy*` so
-// any existing pages that haven't been migrated continue to work.
+// ── Transfers ─────────────────────────────────────────────────────────────────
 export const transfersApi = {
-  // All transfer routes go through /transfers (old TransfersModule — the working one)
   getAll: (params?: any) => api.get('/transfers', { params }),
   getById: (id: string) => api.get(`/transfers/${id}`),
   create: (data: any) => api.post('/transfers', data),
