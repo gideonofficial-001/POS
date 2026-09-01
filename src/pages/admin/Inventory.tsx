@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PackageSearch, AlertTriangle, Store, ArrowLeft, Plus, Trash2, Settings2, DollarSign } from 'lucide-react'
+import { PackageSearch, AlertTriangle, Store, ArrowLeft, Plus, Trash2, Settings2, DollarSign, Globe, MapPin } from 'lucide-react'
 import { toast } from 'sonner'
 
 const Inventory = () => {
@@ -47,8 +47,8 @@ const Inventory = () => {
     price: 0, emptyPrice: 0, wholesalePrice: 0, wholesaleEmptyPrice: 0, minStockLevel: 10
   })
 
-  // ── Confirm-delete dialog state ─────────────────────────────────────────────
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  // 🚀 SMART DELETE STATE: Tracks local vs global context
+  const [deleteTarget, setDeleteTarget] = useState<{ inventoryId: string; productId: string; name: string; isGlobal: boolean } | null>(null)
 
   const { data: branches, isLoading: isLoadingBranches } = useQuery({
     queryKey: ['branches'],
@@ -85,9 +85,7 @@ const Inventory = () => {
       setIsAdjustStockOpen(false)
       toast.success('Stock adjusted successfully')
     },
-    onError: (error: any) => {
-      toast.error(error?.response?.data?.message || 'Failed to adjust stock')
-    }
+    onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to adjust stock')
   })
 
   const updatePriceMutation = useMutation({
@@ -103,37 +101,40 @@ const Inventory = () => {
       setIsEditPriceOpen(false)
       toast.success('Prices updated successfully')
     },
-    onError: (error: any) => {
-      toast.error(error?.response?.data?.message || 'Failed to update prices')
-    }
+    onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to update prices')
   })
 
-  // ── FIX: deleteProductMutation now has onSuccess and onError handlers ────────
-  // The backend uses a "smart delete":
-  //   • If the product has sales/transfer history → soft-delete (isActive = false)
-  //   • If it has no history → hard-delete permanently from all branches
+  // 🚀 GLOBAL DELETE (When Admin manages their own HQ Branch)
   const deleteProductMutation = useMutation({
     mutationFn: async (productId: string) => await productsApi.delete(productId),
     onSuccess: (response: any) => {
       const result = response?.data
-      queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       setDeleteTarget(null)
 
       if (result?.softDeleted) {
-        // Product had sales/transfer history — was deactivated, not hard-deleted
-        toast.warning('Product deactivated', {
-          description: result.message,
-          duration: 6000,
-        })
+        toast.warning('Product deactivated', { description: result.message, duration: 6000 })
       } else {
         toast.success('Product permanently deleted from all branches.')
       }
     },
     onError: (error: any) => {
       setDeleteTarget(null)
-      const msg = error?.response?.data?.message || 'Failed to delete product. Please try again.'
-      toast.error('Delete failed', { description: msg })
+      toast.error('Global Delete failed', { description: error?.response?.data?.message || 'Failed to delete product.' })
+    }
+  })
+
+  // 🚀 LOCAL DELETE (When Admin manages a remote branch)
+  const removeLocalInventoryMutation = useMutation({
+    mutationFn: async (inventoryId: string) => await inventoryApi.delete(inventoryId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
+      setDeleteTarget(null)
+      toast.success('Product successfully removed from this branch.')
+    },
+    onError: (error: any) => {
+      setDeleteTarget(null)
+      toast.error('Local Removal failed', { description: error?.response?.data?.message || 'Failed to remove from branch.' })
     }
   })
 
@@ -143,9 +144,7 @@ const Inventory = () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       toast.success('Category deleted')
     },
-    onError: (error: any) => {
-      toast.error(error?.response?.data?.message || 'Failed to delete category')
-    }
+    onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to delete category')
   })
 
   const createCategoryMutation = useMutation({
@@ -157,9 +156,7 @@ const Inventory = () => {
       setIsLpgCategory(false)
       toast.success('Category created')
     },
-    onError: (error: any) => {
-      toast.error(error?.response?.data?.message || 'Failed to create category')
-    }
+    onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to create category')
   })
 
   const createProductMutation = useMutation({
@@ -170,9 +167,7 @@ const Inventory = () => {
       setNewProduct({ name: '', code: '', type: 'ACCESSORIES', categoryId: '', price: 0, emptyPrice: 0, wholesalePrice: 0, wholesaleEmptyPrice: 0, minStockLevel: 10 })
       toast.success('Product created and added to all branches')
     },
-    onError: (error: any) => {
-      toast.error(error?.response?.data?.message || 'Failed to create product')
-    }
+    onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to create product')
   })
 
   const categoriesWithItems = useMemo(() => {
@@ -417,10 +412,15 @@ const Inventory = () => {
                                       <Settings2 className="w-4 h-4 text-blue-600" />
                                     </Button>
 
-                                    {/* FIX: opens confirm dialog instead of using browser confirm() */}
+                                    {/* 🚀 SMART DELETE TRIGGER */}
                                     <Button
                                       variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50"
-                                      onClick={() => setDeleteTarget({ id: item.product.id, name: item.product.name })}
+                                      onClick={() => setDeleteTarget({ 
+                                        inventoryId: item.id, 
+                                        productId: item.product.id, 
+                                        name: item.product.name,
+                                        isGlobal: activeBranchId === user?.branchId 
+                                      })}
                                     >
                                       <Trash2 className="w-4 h-4 text-destructive" />
                                     </Button>
@@ -440,46 +440,56 @@ const Inventory = () => {
         </div>
       )}
 
-      {/* ── FIX: Delete Product Confirm Dialog ─────────────────────────────── */}
-      {/* Replaces the old browser confirm() which gave no feedback on failure  */}
+      {/* 🚀 SMART DELETE CONFIRM DIALOG */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="w-5 h-5" /> Delete Product
+              <Trash2 className="w-5 h-5" /> 
+              {deleteTarget?.isGlobal ? 'Delete Product Globally' : 'Remove from Branch'}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <p className="font-semibold text-base">
-              "{deleteTarget?.name}"
-            </p>
+            <p className="font-semibold text-base">"{deleteTarget?.name}"</p>
 
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 space-y-1.5">
-              <p className="font-bold">⚠️ This is a global action</p>
-              <p>The product will be removed from <span className="font-semibold">all branches</span>, not just this one.</p>
-              <p className="mt-1 text-amber-700">
-                If this product has any sales or transfer history, it will be
-                <span className="font-semibold"> deactivated</span> instead of permanently
-                deleted — preserving your records while hiding it from active workflows.
+            <div className={`rounded-lg border p-3 text-sm space-y-1.5 ${deleteTarget?.isGlobal ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-800'}`}>
+              <p className="font-bold flex items-center gap-1.5">
+                {deleteTarget?.isGlobal ? <Globe className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}
+                {deleteTarget?.isGlobal ? 'Global Action (HQ)' : 'Local Branch Action'}
               </p>
+              
+              {deleteTarget?.isGlobal ? (
+                <>
+                  <p>Because you are managing your own HQ branch, this will remove the product from <span className="font-semibold">all branches globally</span>.</p>
+                  <p className="mt-1 text-amber-700 text-xs">If this product has any sales history, it will be deactivated instead of permanently deleted to preserve your records.</p>
+                </>
+              ) : (
+                <>
+                  <p>This will only remove the product from <span className="font-semibold">{activeBranch?.name}'s</span> inventory. It will remain available for other branches.</p>
+                  <p className="mt-1 text-slate-600 text-xs">If this item has an established sales history at this specific branch, the removal will be blocked to protect your financial audits.</p>
+                </>
+              )}
             </div>
           </div>
 
           <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleteProductMutation.isPending}
-            >
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteProductMutation.isPending || removeLocalInventoryMutation.isPending}>
               Cancel
             </Button>
             <Button
               variant="destructive"
-              onClick={() => deleteTarget && deleteProductMutation.mutate(deleteTarget.id)}
-              disabled={deleteProductMutation.isPending}
+              onClick={() => {
+                if (!deleteTarget) return;
+                if (deleteTarget.isGlobal) {
+                  deleteProductMutation.mutate(deleteTarget.productId)
+                } else {
+                  removeLocalInventoryMutation.mutate(deleteTarget.inventoryId)
+                }
+              }}
+              disabled={deleteProductMutation.isPending || removeLocalInventoryMutation.isPending}
             >
-              {deleteProductMutation.isPending ? 'Deleting...' : 'Yes, Delete'}
+              {(deleteProductMutation.isPending || removeLocalInventoryMutation.isPending) ? 'Processing...' : (deleteTarget?.isGlobal ? 'Yes, Delete Globally' : 'Remove Locally')}
             </Button>
           </DialogFooter>
         </DialogContent>
