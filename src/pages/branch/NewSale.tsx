@@ -11,29 +11,41 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
-import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag } from 'lucide-react'
+import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag, Smartphone } from 'lucide-react'
+import { MpesaPaymentModal } from './MpesaPaymentModal'
 
 const VARIANT_SEPARATOR = '~~'
 
+interface MpesaResult {
+  receiptNumber: string
+  phoneNumber: string
+  amount: number
+  customerName?: string | null
+}
+
 const NewSale = () => {
   const { user } = useAuthStore()
-  const { 
-    items, addItem, removeItem, updateQuantity, clearCart, 
-    getSubtotal, getTotal, discount, setDiscount 
+  const {
+    items, addItem, removeItem, updateQuantity, clearCart,
+    getSubtotal, getTotal, discount, setDiscount
   } = useCartStore()
 
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
-  
-  // Sale Type State (CASH = Retail, WHOLESALE = Wholesale)
   const [saleType, setSaleType] = useState<SaleType>(SaleType.CASH)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
+  const [customerName, setCustomerName] = useState('')
 
   const [lpgModalOpen, setLpgModalOpen] = useState(false)
   const [selectedInvItem, setSelectedInvItem] = useState<any>(null)
-  
-  // FIXED: Added itemsStr to the TypeScript definition
-  const [invoiceReceipt, setInvoiceReceipt] = useState<{code: string, name: string, phone: string, total: number, itemsStr: string} | null>(null)
+
+  // M-Pesa state
+  const [mpesaModalOpen, setMpesaModalOpen] = useState(false)
+  const [pendingSaleData, setPendingSaleData] = useState<any>(null)
+  const [paymentPickerOpen, setPaymentPickerOpen] = useState(false)
+  const [invoiceReceipt, setInvoiceReceipt] = useState<{
+    code: string; name: string; phone: string; total: number; itemsStr: string
+  } | null>(null)
 
   const branchId = user?.branchId || ''
 
@@ -54,9 +66,7 @@ const NewSale = () => {
         const response = await customersApi.getAll()
         const data = Array.isArray(response.data) ? response.data : (response.data?.data || [])
         return data.filter((c: any) => c.isActive)
-      } catch (error) {
-        return []
-      }
+      } catch { return [] }
     }
   })
 
@@ -65,41 +75,43 @@ const NewSale = () => {
     onSuccess: (response, variables) => {
       if (variables.type === SaleType.INVOICE) {
         const customer = customers.find((c: any) => c.id === variables.customerId)
-        
-        // FIXED: Using item.productId instead of item.id
         const itemsListStr = items.map(item => {
-          const lpgLabel = item.productId.includes('REFILL') ? ' (Refill)' : item.productId.includes('EMPTY_SHELL') ? ' (Empty Shell)' : item.productId.includes('COMPLETE_SET') ? ' (Complete Set)' : '';
-          return `${item.quantity}x ${item.product.name}${lpgLabel}`;
-        }).join('\n- ');
-
+          const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
+          const label = lpgVariant === 'REFILL' ? ' (Refill)' : lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
+          return `${item.quantity}x ${item.product.name}${label}`
+        }).join('\n- ')
         setInvoiceReceipt({
           code: response.data.saleCode,
           name: customer?.name || 'Customer',
           phone: customer?.phone || '',
           total: getTotal() - (discount || 0),
-          itemsStr: itemsListStr
+          itemsStr: itemsListStr,
         })
       } else {
-        toast.success(`Sale completed! Code: ${response.data.saleCode}`)
+        const parts = [`Sale completed! Code: ${response.data.saleCode}`]
+        if (variables.mpesaRef) parts.push(`M-Pesa: ${variables.mpesaRef}`)
+        if (variables.customerName) parts.push(`Customer: ${variables.customerName}`)
+        toast.success(parts.join(' · '))
       }
-      
       clearCart()
       setSearch('')
       setSelectedCustomerId('')
+      setCustomerName('')
       setSaleType(SaleType.CASH)
       setDiscount(0)
+      setPendingSaleData(null)
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['customers'] })
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
     },
-    onError: (error: any) => toast.error(error.response?.data?.message || 'Failed to create sale')
+    onError: (error: any) => toast.error(error.response?.data?.message || 'Failed to create sale'),
   })
 
   const filteredInventory = inventory?.filter((inv: any) => {
-    if (!inv.product?.isActive) return false;
-    if (search.trim() === '') return true;
+    if (!inv.product?.isActive) return false
+    if (search.trim() === '') return true
     return (
       inv.product.name.toLowerCase().includes(search.toLowerCase()) ||
       inv.product.code.toLowerCase().includes(search.toLowerCase())
@@ -109,69 +121,87 @@ const NewSale = () => {
   const handleTypeSwitch = (newType: SaleType) => {
     if (items.length > 0 && newType !== saleType) {
       if (window.confirm('Changing the sale type will clear your current cart. Do you want to proceed?')) {
-        clearCart()
-        setSaleType(newType)
+        clearCart(); setSaleType(newType)
       }
     } else {
       setSaleType(newType)
     }
   }
 
+  const buildSaleData = () => ({
+    branchId,
+    type: saleType,
+    customerId: saleType === SaleType.INVOICE ? selectedCustomerId : undefined,
+    customerName: saleType !== SaleType.INVOICE && customerName.trim() ? customerName.trim() : undefined,
+    discount,
+    items: items.map(item => {
+      const [productId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
+      return { productId, quantity: item.quantity, ...(lpgVariant ? { lpgVariant } : {}) }
+    }),
+  })
+
   const handleCheckout = () => {
     if (items.length === 0) return toast.error('Cart is empty')
-    if (saleType === SaleType.INVOICE && !selectedCustomerId) {
+    if (saleType === SaleType.INVOICE && !selectedCustomerId)
       return toast.error('Please select a customer for this invoice')
+    
+    const saleData = buildSaleData()
+    
+    if (saleType === SaleType.INVOICE) {
+      createSaleMutation.mutate(saleData)
+    } else {
+      setPendingSaleData(saleData)
+      setPaymentPickerOpen(true)
     }
+  }
 
-    const saleData = {
-      branchId, 
-      type: saleType, 
-      customerId: saleType === SaleType.INVOICE ? selectedCustomerId : undefined,
-      discount,
-      items: items.map(item => {
-        const [productId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
-        return {
-          productId,
-          quantity: item.quantity,
-          ...(lpgVariant ? { lpgVariant } : {}),
-        }
-      }),
+  const handlePayCash = () => {
+    setPaymentPickerOpen(false)
+    if (pendingSaleData) createSaleMutation.mutate({ ...pendingSaleData, paymentProvider: 'CASH' })
+  }
+
+  const handlePayMpesa = () => {
+    setPaymentPickerOpen(false)
+    setMpesaModalOpen(true)
+  }
+
+  const handleMpesaSuccess = (result: MpesaResult) => {
+    setMpesaModalOpen(false)
+    if (pendingSaleData) {
+      createSaleMutation.mutate({
+        ...pendingSaleData,
+        paymentProvider: 'MPESA',
+        mpesaRef: result.receiptNumber,
+        customerName: pendingSaleData.customerName || result.customerName || undefined,
+      })
     }
-
-    createSaleMutation.mutate(saleData)
   }
 
   const handleLpgSelect = (type: 'REFILL' | 'EMPTY_SHELL' | 'COMPLETE_SET') => {
-    if (!selectedInvItem) return;
-
-    const p = selectedInvItem.product;
+    if (!selectedInvItem) return
+    const p = selectedInvItem.product
+    const baseGasPrice = saleType === SaleType.WHOLESALE ? Number(p.wholesalePrice || p.price) : Number(p.price)
+    const rawEmptyPrice = saleType === SaleType.WHOLESALE ? (p.wholesaleEmptyPrice || p.emptyPrice) : p.emptyPrice
+    const emptyPrice = rawEmptyPrice != null ? Number(rawEmptyPrice) : null
     
-    // Dynamically calculate prices based on Retail vs Wholesale
-    const baseGasPrice = saleType === SaleType.WHOLESALE ? Number(p.wholesalePrice || p.price) : Number(p.price);
-    const rawEmptyPrice = saleType === SaleType.WHOLESALE ? (p.wholesaleEmptyPrice || p.emptyPrice) : p.emptyPrice;
-    const emptyPrice = rawEmptyPrice != null ? Number(rawEmptyPrice) : null;
-
     if (type === 'REFILL') {
       if (selectedInvItem.fullCylinders > 0) {
         addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}REFILL`, name: `${p.name} (Refill)`, price: baseGasPrice }, 1)
         toast.success(`Added ${p.name} Refill`)
       } else toast.error('No full cylinders in stock!')
-    } 
-    else if (type === 'EMPTY_SHELL') {
+    } else if (type === 'EMPTY_SHELL') {
       if (emptyPrice == null) toast.error('Empty shell price is not set for this product')
       else if (selectedInvItem.emptyCylinders > 0) {
         addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}EMPTY_SHELL`, name: `${p.name} (Empty Shell)`, price: emptyPrice }, 1)
         toast.success(`Added ${p.name} Empty Shell`)
       } else toast.error('No empty shells in stock!')
-    } 
-    else if (type === 'COMPLETE_SET') {
+    } else if (type === 'COMPLETE_SET') {
       if (emptyPrice == null) toast.error('Empty shell price is not set for this product')
       else if (selectedInvItem.fullCylinders > 0) {
         addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}COMPLETE_SET`, name: `${p.name} (Complete Set)`, price: baseGasPrice + emptyPrice }, 1)
         toast.success(`Added ${p.name} Complete Set`)
       } else toast.error('No full cylinders in stock to make a complete set!')
     }
-
     setLpgModalOpen(false)
     setSearch('')
   }
@@ -182,10 +212,8 @@ const NewSale = () => {
         <h1 className="text-2xl font-bold">New Sale</h1>
         <p className="text-muted-foreground">Search and tap products to add to cart</p>
       </div>
-
       <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 flex-1 min-h-0">
-        
-        {/* Left Side: Search & Scrollable Products Grid */}
+        {/* Products */}
         <div className="lg:col-span-2 flex flex-col h-[50vh] lg:h-full bg-muted/10 rounded-xl border overflow-hidden shadow-sm">
           <div className="p-4 bg-white border-b flex-shrink-0">
             <div className="relative">
@@ -198,7 +226,6 @@ const NewSale = () => {
               />
             </div>
           </div>
-
           <div className="flex-1 overflow-y-auto p-4">
             {filteredInventory.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground">
@@ -208,32 +235,23 @@ const NewSale = () => {
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {filteredInventory.map((inv: any) => {
-                  const product = inv.product;
-                  const isLpg = product.type === 'LPG_REFILL' || product.type === 'LPG_CYLINDER';
-                  const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity;
-                  const isOutOfStock = availableStock === 0;
-
-                  // Determine active display price based on toggle
-                  const displayPrice = saleType === SaleType.WHOLESALE 
-                    ? (product.wholesalePrice || product.price) 
-                    : product.price;
-
+                  const product = inv.product
+                  const isLpg = product.type === 'LPG_REFILL' || product.type === 'LPG_CYLINDER'
+                  const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity
+                  const isOutOfStock = availableStock === 0
+                  const displayPrice = saleType === SaleType.WHOLESALE
+                    ? (product.wholesalePrice || product.price) : product.price
                   return (
                     <Card
                       key={product.id}
                       className={`cursor-pointer transition-all hover:border-primary hover:shadow-md bg-white ${isOutOfStock ? 'opacity-50 grayscale' : ''}`}
                       onClick={() => {
                         if (isLpg) {
-                          setSelectedInvItem({
-                            ...inv, 
-                            emptyCylinders: (inv.quantity || 0) - (inv.fullCylinders || 0)
-                          })
+                          setSelectedInvItem({ ...inv, emptyCylinders: (inv.quantity || 0) - (inv.fullCylinders || 0) })
                           setLpgModalOpen(true)
                         } else {
-                          if (!isOutOfStock) {
-                            addItem({ ...product, price: displayPrice }, 1)
-                            setSearch('')
-                          } else toast.error('Out of stock!')
+                          if (!isOutOfStock) { addItem({ ...product, price: displayPrice }, 1); setSearch('') }
+                          else toast.error('Out of stock!')
                         }
                       }}
                     >
@@ -258,8 +276,7 @@ const NewSale = () => {
             )}
           </div>
         </div>
-
-        {/* Right Side: Cart Section */}
+        {/* Cart */}
         <div className="flex flex-col h-auto lg:h-full">
           <Card className="flex flex-col h-full border-primary/10 shadow-md">
             <CardHeader className="pb-4 flex-shrink-0">
@@ -268,68 +285,77 @@ const NewSale = () => {
                 Cart ({items.length})
               </CardTitle>
             </CardHeader>
-            
             <CardContent className="flex-1 flex flex-col min-h-[300px] overflow-hidden space-y-4">
-              
-              {/* RETAIL vs WHOLESALE vs INVOICE Toggles */}
+              {/* Sale type toggles */}
               <div className="flex gap-2 flex-shrink-0 bg-muted/30 p-1 rounded-lg">
-                <Button 
-                  variant={saleType === SaleType.CASH ? 'default' : 'ghost'} 
+                <Button
+                  variant={saleType === SaleType.CASH ? 'default' : 'ghost'}
                   className={`flex-1 ${saleType === SaleType.CASH ? 'shadow-sm' : ''}`}
                   onClick={() => handleTypeSwitch(SaleType.CASH)}
-                >
-                  Retail
-                </Button>
-                <Button 
-                  variant={saleType === SaleType.WHOLESALE ? 'default' : 'ghost'} 
+                >Retail</Button>
+                <Button
+                  variant={saleType === SaleType.WHOLESALE ? 'default' : 'ghost'}
                   className={`flex-1 ${saleType === SaleType.WHOLESALE ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm' : ''}`}
                   onClick={() => handleTypeSwitch(SaleType.WHOLESALE)}
-                >
-                  Wholesale
-                </Button>
-                <Button 
-                  variant={saleType === SaleType.INVOICE ? 'default' : 'ghost'} 
+                >Wholesale</Button>
+                <Button
+                  variant={saleType === SaleType.INVOICE ? 'default' : 'ghost'}
                   className={`flex-1 ${saleType === SaleType.INVOICE ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-sm' : ''}`}
                   onClick={() => handleTypeSwitch(SaleType.INVOICE)}
-                >
-                  Invoice
-                </Button>
+                >Invoice</Button>
               </div>
-
+              {/* Cart items */}
               <div className="flex-1 overflow-y-auto space-y-2 pr-2 border rounded-lg p-2 bg-gray-50/50 min-h-[150px]">
                 {items.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-60">
                     <ShoppingCart className="w-12 h-12 mb-2" />
                     <p>Cart is empty</p>
                   </div>
-                ) : (
-                  items.map((item) => (
-                    <div key={item.productId} className="flex items-center gap-2 p-2 bg-white border rounded-md shadow-sm">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate leading-tight">{item.product.name}</p>
-                        <p className="text-xs text-primary font-bold mt-0.5">{formatCurrency(item.unitPrice)}</p>
-                      </div>
-                      <div className="flex items-center gap-1 bg-muted/30 rounded-md border p-0.5">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-white" onClick={() => updateQuantity(item.productId, item.quantity - 1)}>
-                          <Minus className="w-3 h-3" />
-                        </Button>
-                        <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-white" onClick={() => updateQuantity(item.productId, item.quantity + 1)}>
-                          <Plus className="w-3 h-3" />
-                        </Button>
-                      </div>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive ml-1" onClick={() => removeItem(item.productId)}>
-                        <Trash2 className="w-4 h-4" />
+                ) : items.map((item) => (
+                  <div key={item.productId} className="flex items-center gap-2 p-2 bg-white border rounded-md shadow-sm">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate leading-tight">{item.product.name}</p>
+                      <p className="text-xs text-primary font-bold mt-0.5">{formatCurrency(item.unitPrice)}</p>
+                    </div>
+                    <div className="flex items-center gap-1 bg-muted/30 rounded-md border p-0.5">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-white"
+                        onClick={() => updateQuantity(item.productId, item.quantity - 1)}>
+                        <Minus className="w-3 h-3" />
+                      </Button>
+                      <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-white"
+                        onClick={() => updateQuantity(item.productId, item.quantity + 1)}>
+                        <Plus className="w-3 h-3" />
                       </Button>
                     </div>
-                  ))
-                )}
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10 ml-1"
+                      onClick={() => removeItem(item.productId)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
               </div>
-
               <div className="flex-shrink-0 space-y-3">
+                {/* Optional customer name — cash/wholesale sales only */}
+                {saleType !== SaleType.INVOICE && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Customer Name (optional — printed on receipt)
+                    </Label>
+                    <Input
+                      placeholder="e.g. John Kamau"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      className="h-9 border-gray-200 text-sm"
+                    />
+                  </div>
+                )}
+                {/* Invoice customer select */}
                 {saleType === SaleType.INVOICE && (
                   <div className="space-y-1.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <Label className="text-xs font-bold text-amber-900 uppercase tracking-wider">Select Customer (Required)</Label>
+                    <Label className="text-xs font-bold text-amber-900 uppercase tracking-wider">
+                      Select Customer (Required)
+                    </Label>
                     <select
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
@@ -337,21 +363,20 @@ const NewSale = () => {
                     >
                       <option value="">-- Choose a customer --</option>
                       {customers.map((c: any) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} {c.phone ? `(${c.phone})` : ''}
-                        </option>
+                        <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>
                       ))}
                     </select>
                   </div>
                 )}
-
+                {/* Discount */}
                 <div className="flex items-center gap-2 px-1">
                   <Tag className="w-4 h-4 text-muted-foreground" />
-                  <Input type="number" placeholder="Apply Discount (KES)" value={discount || ''} onChange={e => setDiscount(Number(e.target.value))} className="flex-1 h-10 border-gray-200" />
+                  <Input type="number" placeholder="Apply Discount (KES)" value={discount || ''}
+                    onChange={e => setDiscount(Number(e.target.value))}
+                    className="flex-1 h-10 border-gray-200" />
                 </div>
-
                 <Separator />
-
+                {/* Totals */}
                 <div className="space-y-1.5 text-sm bg-slate-900 text-white p-4 rounded-xl shadow-inner">
                   <div className="flex justify-between text-slate-300">
                     <span>Subtotal</span>
@@ -370,11 +395,14 @@ const NewSale = () => {
                 </div>
               </div>
             </CardContent>
-            
             <CardFooter className="pt-2 flex-shrink-0">
-              <Button 
-                className={`w-full text-lg font-bold h-14 shadow-lg ${saleType === SaleType.WHOLESALE ? 'bg-purple-600 hover:bg-purple-700' : ''}`} 
-                disabled={items.length === 0 || createSaleMutation.isPending || (saleType === SaleType.INVOICE && !selectedCustomerId)} 
+              <Button
+                className={`w-full text-lg font-bold h-14 shadow-lg ${saleType === SaleType.WHOLESALE ? 'bg-purple-600 hover:bg-purple-700' : ''}`}
+                disabled={
+                  items.length === 0 ||
+                  createSaleMutation.isPending ||
+                  (saleType === SaleType.INVOICE && !selectedCustomerId)
+                }
                 onClick={handleCheckout}
               >
                 {createSaleMutation.isPending ? 'Processing...' : `Charge ${formatCurrency(getTotal())}`}
@@ -383,17 +411,56 @@ const NewSale = () => {
           </Card>
         </div>
       </div>
-
-      {/* LPG Selection Modal */}
+      {/* Payment method picker */}
+      <Dialog open={paymentPickerOpen} onOpenChange={setPaymentPickerOpen}>
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle>How is the customer paying?</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-4">
+            <Button
+              className="h-16 justify-start text-left px-4 bg-slate-800 hover:bg-slate-700 text-white"
+              onClick={handlePayCash}
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-white/20 rounded-full p-2">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-bold">Cash</p>
+                  <p className="text-xs opacity-80">Record as cash payment</p>
+                </div>
+              </div>
+            </Button>
+            <Button
+              className="h-16 justify-start text-left px-4 bg-green-600 hover:bg-green-700 text-white"
+              onClick={handlePayMpesa}
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-white/20 rounded-full p-2">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-bold">M-Pesa</p>
+                  <p className="text-xs opacity-80">STK push or verify receipt code</p>
+                </div>
+              </div>
+            </Button>
+            <Button variant="outline" onClick={() => setPaymentPickerOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* LPG selection modal */}
       <Dialog open={lpgModalOpen} onOpenChange={setLpgModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Select Sale Type: {selectedInvItem?.product?.name}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-4">
-            <Button 
-              variant="outline" 
-              className={`h-16 justify-start text-left px-4 ${selectedInvItem?.fullCylinders === 0 ? 'opacity-50' : 'hover:border-blue-400'}`} 
+            <Button variant="outline"
+              className={`h-16 justify-start text-left px-4 ${selectedInvItem?.fullCylinders === 0 ? 'opacity-50' : 'hover:border-blue-400'}`}
               onClick={() => handleLpgSelect('REFILL')}
               disabled={selectedInvItem?.fullCylinders === 0}
             >
@@ -406,10 +473,8 @@ const NewSale = () => {
                 <p className="text-xs text-muted-foreground">Customer returns empty shell</p>
               </div>
             </Button>
-
-            <Button 
-              variant="outline" 
-              className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`} 
+            <Button variant="outline"
+              className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`}
               onClick={() => handleLpgSelect('EMPTY_SHELL')}
               disabled={selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null}
             >
@@ -420,16 +485,13 @@ const NewSale = () => {
                   <span className="text-xs font-medium text-amber-600">{Math.max(0, selectedInvItem?.emptyCylinders || 0)} left</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Selling shell asset (
-                    {saleType === SaleType.WHOLESALE 
-                      ? (selectedInvItem?.product?.wholesaleEmptyPrice ? formatCurrency(selectedInvItem.product.wholesaleEmptyPrice) : 'price not set')
-                      : (selectedInvItem?.product?.emptyPrice != null ? formatCurrency(selectedInvItem.product.emptyPrice) : 'price not set')}
-                  )
+                  Selling shell asset ({saleType === SaleType.WHOLESALE
+                    ? (selectedInvItem?.product?.wholesaleEmptyPrice ? formatCurrency(selectedInvItem.product.wholesaleEmptyPrice) : 'price not set')
+                    : (selectedInvItem?.product?.emptyPrice != null ? formatCurrency(selectedInvItem.product.emptyPrice) : 'price not set')})
                 </p>
               </div>
             </Button>
-
-            <Button 
+            <Button
               className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : ''}`}
               onClick={() => handleLpgSelect('COMPLETE_SET')}
               disabled={selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null}
@@ -438,20 +500,16 @@ const NewSale = () => {
               <div className="flex-1">
                 <p className="font-bold">Complete Set (Gas + Shell)</p>
                 <p className="text-xs opacity-90">
-                  Customer takes new cylinder (
-                    {saleType === SaleType.WHOLESALE
-                      ? formatCurrency(Number(selectedInvItem?.product?.wholesalePrice || 0) + Number(selectedInvItem?.product?.wholesaleEmptyPrice || 0))
-                      : formatCurrency(Number(selectedInvItem?.product?.price || 0) + Number(selectedInvItem?.product?.emptyPrice || 0))
-                    }
-                  )
+                  ({saleType === SaleType.WHOLESALE
+                    ? formatCurrency(Number(selectedInvItem?.product?.wholesalePrice || 0) + Number(selectedInvItem?.product?.wholesaleEmptyPrice || 0))
+                    : formatCurrency(Number(selectedInvItem?.product?.price || 0) + Number(selectedInvItem?.product?.emptyPrice || 0))})
                 </p>
               </div>
             </Button>
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Invoice WhatsApp/SMS Generator Modal */}
+      {/* Invoice receipt modal */}
       <Dialog open={!!invoiceReceipt} onOpenChange={() => setInvoiceReceipt(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -461,29 +519,31 @@ const NewSale = () => {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
-              The invoice has been saved to the database. Copy the message below to send to the customer and admin.
+              The invoice has been saved. Copy the message below to send to the customer.
             </p>
-            <textarea 
-              readOnly 
-              className="w-full h-48 p-3 bg-muted rounded-md text-sm border focus:outline-none resize-none"
+            <textarea readOnly className="w-full h-48 p-3 bg-muted rounded-md text-sm border focus:outline-none resize-none"
               value={`Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nItems:\n- ${invoiceReceipt?.itemsStr}\n\nPlease arrange payment. Thank you!`}
             />
-            <Button 
-              className="w-full bg-green-600 hover:bg-green-700 text-white"
+            <Button className="w-full bg-green-600 hover:bg-green-700 text-white"
               onClick={() => {
                 const msg = `Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nItems:\n- ${invoiceReceipt?.itemsStr}\n\nPlease arrange payment. Thank you!`
                 navigator.clipboard.writeText(msg)
                 toast.success('Message copied to clipboard!')
-              }}
-            >
+              }}>
               Copy WhatsApp Message
             </Button>
-            <Button variant="outline" className="w-full" onClick={() => setInvoiceReceipt(null)}>
-              Close
-            </Button>
+            <Button variant="outline" className="w-full" onClick={() => setInvoiceReceipt(null)}>Close</Button>
           </div>
         </DialogContent>
       </Dialog>
+      {/* M-Pesa modal */}
+      {mpesaModalOpen && (
+        <MpesaPaymentModal
+          amount={getTotal()}
+          onSuccess={handleMpesaSuccess}
+          onClose={() => { setMpesaModalOpen(false); setPendingSaleData(null) }}
+        />
+      )}
     </div>
   )
 }
