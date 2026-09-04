@@ -207,7 +207,7 @@ const NewSale = () => {
   }
 
   return (
-    <div className="flex flex-col lg:h-[calc(100vh-6rem)] space-y-4 pb-10 lg:pb-0">
+    <div className="flex flex-col lg:min-h-[calc(100vh-6rem)] bg-background space-y-4 pb-10 lg:pb-0">
       <div className="flex-shrink-0">
         <h1 className="text-2xl font-bold">New Sale</h1>
         <p className="text-muted-foreground">Search and tap products to add to cart</p>
