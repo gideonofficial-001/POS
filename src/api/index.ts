@@ -229,4 +229,12 @@ export const activityFeedApi = {
     api.get('/activity-feed/recent', { params: { limit } }),
 }
 
+// ── M-Pesa ────────────────────────────────────────────────────────────────────
+export const mpesaApi = {
+  stkPush: (phoneNumber: string, amount: number, saleId?: string, invoiceId?: string) =>
+    api.post('/mpesa/stkpush', { phoneNumber, amount, saleId, invoiceId }),
+  getStatus: (checkoutRequestId: string) =>
+    api.get(`/mpesa/status/${checkoutRequestId}`),
+}
+
 export default api
