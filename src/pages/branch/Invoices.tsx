@@ -69,7 +69,16 @@ const Invoices = () => {
 
     recordPaymentMutation.mutate({ id: selectedPaymentInvoice.id, amount })
   }
-
+const cancelMutation = useMutation({
+    mutationFn: (id: string) => invoicesApi.cancel(id),
+    onSuccess: () => {
+      toast.success('Invoice cancelled successfully');
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      // Close your modal here
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to cancel invoice')
+  })
+  
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'PAID': return <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">Paid</Badge>
@@ -230,12 +239,6 @@ const Invoices = () => {
             </div>
             
             <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => { setSelectedPaymentInvoice(null); setPaymentAmount(''); }}>Cancel</Button>
-              <Button type="submit" disabled={recordPaymentMutation.isPending || !paymentAmount}>
-                {recordPaymentMutation.isPending ? 'Processing...' : 'Confirm Payment'}
-              </Button>
-            </DialogFooter>
-          </form>
         </DialogContent>
       </Dialog>
     </div>
