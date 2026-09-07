@@ -21,6 +21,8 @@ import Inventory from '@/pages/admin/Inventory'
 import Customers from '@/pages/admin/Customers'
 import AuditLogs from '@/pages/admin/AuditLogs'
 import AdminDevices from '@/pages/admin/Devices'
+import AdminReturns from '@/pages/admin/returns'
+
 
 // Manager Pages
 import ManagerDashboard from '@/pages/manager/Dashboard'
