@@ -149,6 +149,7 @@ export const invoicesApi = {
     api.patch(`/invoices/${id}/status`, { status }),
   getSummary: () => api.get('/invoices/summary'),
   getOverdue: () => api.get('/invoices/overdue'),
+  cancel: (id: string) => api.patch(`/invoices/${id}/cancel`),
 }
 
 // ── Returns ───────────────────────────────────────────────────────────────────
