@@ -22,7 +22,7 @@ const Sidebar = () => {
     window.location.href = '/login'
   }
 
-  const getNavItems = () => {
+    const getNavItems = () => {
     if (!user) return []
     const items = []
 
@@ -35,6 +35,7 @@ const Sidebar = () => {
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
         { path: '/admin/sales-history', icon: History, label: 'Sales History' },
+        { path: '/admin/returns', icon: RotateCcw, label: 'Returns' }, // 🚀 ADDED HERE
         { path: '/admin/transfers', icon: ArrowLeftRight, label: 'Transfers' },
         { path: '/admin/devices',   icon: Smartphone,    label: 'Devices' },
         { path: '/admin/reports',   icon: BarChart3,     label: 'Reports' },
@@ -51,6 +52,7 @@ const Sidebar = () => {
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
         { path: '/admin/sales-history', icon: History, label: 'Sales History' },
+        { path: '/admin/returns', icon: RotateCcw, label: 'Returns' }, // 🚀 ADDED HERE
         { path: '/manager/reports', icon: BarChart3, label: 'Reports' },
         { path: '/notifications', icon: Bell, label: 'Notifications' },
         { path: '/settings', icon: Settings, label: 'Settings' },
@@ -74,6 +76,7 @@ const Sidebar = () => {
 
     return items
   }
+
 
   const navItems = getNavItems()
 
