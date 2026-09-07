@@ -47,6 +47,7 @@ const NewSale = () => {
     code: string; name: string; phone: string; total: number; itemsStr: string
   } | null>(null)
 
+  const requiresCustomer = saleType === SaleType.INVOICE || saleType === SaleType.WHOLESALE;
   const branchId = user?.branchId || ''
 
   const { data: inventory } = useQuery({
@@ -128,11 +129,11 @@ const NewSale = () => {
     }
   }
 
-  const buildSaleData = () => ({
+const buildSaleData = () => ({
     branchId,
     type: saleType,
-    customerId: saleType === SaleType.INVOICE ? selectedCustomerId : undefined,
-    customerName: saleType !== SaleType.INVOICE && customerName.trim() ? customerName.trim() : undefined,
+    customerId: requiresCustomer ? selectedCustomerId : undefined,
+    customerName: !requiresCustomer && customerName.trim() ? customerName.trim() : undefined,
     discount,
     items: items.map(item => {
       const [productId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
@@ -142,8 +143,8 @@ const NewSale = () => {
 
   const handleCheckout = () => {
     if (items.length === 0) return toast.error('Cart is empty')
-    if (saleType === SaleType.INVOICE && !selectedCustomerId)
-      return toast.error('Please select a customer for this invoice')
+    if (requiresCustomer && !selectedCustomerId)
+      return toast.error('Please select a customer for this sale')
     
     const saleData = buildSaleData()
     
@@ -154,7 +155,7 @@ const NewSale = () => {
       setPaymentPickerOpen(true)
     }
   }
-
+  
   const handlePayCash = () => {
     setPaymentPickerOpen(false)
     if (pendingSaleData) createSaleMutation.mutate({ ...pendingSaleData, paymentProvider: 'CASH' })
@@ -336,8 +337,8 @@ const NewSale = () => {
                 ))}
               </div>
               <div className="flex-shrink-0 space-y-3">
-                {/* Optional customer name — cash/wholesale sales only */}
-                {saleType !== SaleType.INVOICE && (
+               {/* Optional customer name — cash sales only */}
+                {!requiresCustomer && (
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                       Customer Name (optional — printed on receipt)
@@ -348,6 +349,24 @@ const NewSale = () => {
                       onChange={(e) => setCustomerName(e.target.value)}
                       className="h-9 border-gray-200 text-sm"
                     />
+                  </div>
+                )}
+                {/* Mandatory customer select for Invoice & Wholesale */}
+                {requiresCustomer && (
+                  <div className="space-y-1.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <Label className="text-xs font-bold text-amber-900 uppercase tracking-wider">
+                      Select Customer (Required)
+                    </Label>
+                    <select
+                      value={selectedCustomerId}
+                      onChange={(e) => setSelectedCustomerId(e.target.value)}
+                      className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
+                    >
+                      <option value="">-- Choose a customer --</option>
+                      {customers.map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>
+                      ))}
+                    </select>
                   </div>
                 )}
                 {/* Invoice customer select */}
