@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import api, { customersApi } from '@/api'
+import api, { customersApi, invoicesApi } from '@/api'
 import { useAuthStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -57,6 +57,18 @@ const Invoices = () => {
     },
   })
 
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => invoicesApi.cancel(id),
+    onSuccess: () => {
+      toast.success('Invoice cancelled successfully');
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      setSelectedPaymentInvoice(null);
+      setPaymentAmount('');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to cancel invoice')
+  })
+
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedPaymentInvoice || !paymentAmount) return
@@ -69,15 +81,6 @@ const Invoices = () => {
 
     recordPaymentMutation.mutate({ id: selectedPaymentInvoice.id, amount })
   }
-const cancelMutation = useMutation({
-    mutationFn: (id: string) => invoicesApi.cancel(id),
-    onSuccess: () => {
-      toast.success('Invoice cancelled successfully');
-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      // Close your modal here
-    },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to cancel invoice')
-  })
   
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -85,6 +88,7 @@ const cancelMutation = useMutation({
       case 'PENDING': return <Badge variant="outline" className="text-amber-600 border-amber-300">Pending</Badge>
       case 'SENT': return <Badge variant="secondary">Sent</Badge>
       case 'OVERDUE': return <Badge variant="destructive">Overdue</Badge>
+      case 'CANCELLED': return <Badge variant="destructive" className="bg-red-100 text-red-700 hover:bg-red-100">Cancelled</Badge>
       default: return <Badge>{status}</Badge>
     }
   }
@@ -109,7 +113,7 @@ const cancelMutation = useMutation({
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {invoices?.map((invoice: any) => (
-          <Card key={invoice.id} className="hover:shadow-md transition-shadow bg-white">
+          <Card key={invoice.id} className={`hover:shadow-md transition-shadow bg-white ${invoice.status === 'CANCELLED' ? 'opacity-60' : ''}`}>
             <CardContent className="p-5">
               <div className="flex items-start justify-between mb-3">
                 <div>
@@ -150,21 +154,21 @@ const cancelMutation = useMutation({
                 </div>
                 <div className="flex justify-between items-center mt-2 pt-2 border-t border-dashed">
                   <span className="text-sm font-bold text-muted-foreground">Balance</span>
-                  <span className={`text-lg font-black ${Number(invoice.balance) > 0 ? 'text-destructive' : 'text-emerald-600'}`}>
+                  <span className={`text-lg font-black ${Number(invoice.balance) > 0 && invoice.status !== 'CANCELLED' ? 'text-destructive' : 'text-emerald-600'}`}>
                     {formatCurrency(invoice.balance)}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground text-right mt-1">Due: {invoice.dueDate ? formatDate(invoice.dueDate) : 'On Receipt'}</p>
               </div>
 
-              {Number(invoice.balance) > 0 && invoice.status !== 'PAID' && (
+              {Number(invoice.balance) > 0 && invoice.status !== 'PAID' && invoice.status !== 'CANCELLED' && (
                 <Button 
                   className="w-full mt-4" 
                   variant="default"
                   onClick={() => setSelectedPaymentInvoice(invoice)}
                 >
                   <CheckCircle className="w-4 h-4 mr-2" />
-                  Record Payment
+                  Manage Invoice
                 </Button>
               )}
             </CardContent>
@@ -211,11 +215,11 @@ const cancelMutation = useMutation({
         </DialogContent>
       </Dialog>
 
-      {/* Record Payment Modal */}
+      {/* Record Payment & Cancel Modal */}
       <Dialog open={!!selectedPaymentInvoice} onOpenChange={() => { setSelectedPaymentInvoice(null); setPaymentAmount(''); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Record Payment</DialogTitle>
+            <DialogTitle>Manage Invoice</DialogTitle>
             <DialogDescription>
               Recording a payment for {selectedPaymentInvoice?.invoiceCode}. When the balance reaches 0, the invoice will automatically convert to PAID.
             </DialogDescription>
@@ -238,7 +242,30 @@ const cancelMutation = useMutation({
               />
             </div>
             
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-4 sm:justify-between flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to cancel this invoice? This action cannot be undone.')) {
+                    cancelMutation.mutate(selectedPaymentInvoice.id)
+                  }
+                }}
+                disabled={cancelMutation.isPending || recordPaymentMutation.isPending}
+              >
+                {cancelMutation.isPending ? 'Cancelling...' : 'Cancel Invoice'}
+              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={() => { setSelectedPaymentInvoice(null); setPaymentAmount(''); }}>
+                  Back
+                </Button>
+                <Button type="submit" disabled={recordPaymentMutation.isPending || cancelMutation.isPending}>
+                  Confirm Payment
+                </Button>
+              </div>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
