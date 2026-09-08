@@ -30,10 +30,10 @@ interface Transfer {
 
 interface TransferItem {
   id: string;
-  product: { id: string; name: string; isCylinderTracked?: boolean };
+  product: { id: string; name: string; isCylinderTracked?: boolean; isLpg?: boolean };
   quantity: number;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
-  variant?: 'STANDARD' | 'REFILL' | 'EMPTY_SHELL';
+  lpgComponent?: 'REFILL' | 'CYLINDER' | null;
   notes?: string;
 }
 
@@ -45,7 +45,7 @@ interface Props {
 
 const statusConfig = {
   PENDING:   { color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-  PARTIAL:   { color: 'bg-blue-100 text-blue-800',    icon: AlertTriangle },
+  PARTIAL:   { color: 'bg-blue-100 text-blue-800',     icon: AlertTriangle },
   COMPLETED: { color: 'bg-green-100 text-green-800',  icon: CheckCircle2 },
   CANCELLED: { color: 'bg-red-100 text-red-800',      icon: XCircle },
 };
@@ -54,12 +54,6 @@ const itemStatusConfig = {
   PENDING:  { color: 'bg-yellow-100 text-yellow-700 border-yellow-200', label: 'Pending' },
   ACCEPTED: { color: 'bg-green-100 text-green-700 border-green-200',   label: 'Accepted' },
   REJECTED: { color: 'bg-red-100 text-red-700 border-red-200',         label: 'Rejected' },
-};
-
-const variantLabel = {
-  STANDARD:    null,
-  REFILL:      { label: 'Refill', color: 'bg-orange-100 text-orange-700 border-orange-200' },
-  EMPTY_SHELL: { label: 'Empty Shell', color: 'bg-gray-100 text-gray-700 border-gray-200' },
 };
 
 export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
@@ -76,7 +70,6 @@ export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
     (transfer.status === 'PENDING' || transfer.status === 'PARTIAL') &&
     (user?.role === 'BRANCH_MANAGER' || user?.role === 'SUPER_ADMIN');
 
-  // Per-item approve
   const approveItemMutation = useMutation({
     mutationFn: (itemId: string) =>
       api.patch(`/transfers/${transfer.id}/items/${itemId}/approve`),
@@ -85,7 +78,6 @@ export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
       toast.error('Failed to accept', { description: err.response?.data?.message }),
   });
 
-  // Per-item reject
   const rejectItemMutation = useMutation({
     mutationFn: ({ itemId, notes }: { itemId: string; notes?: string }) =>
       api.patch(`/transfers/${transfer.id}/items/${itemId}/reject`, {
@@ -130,7 +122,6 @@ export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
       await rejectItemMutation.mutateAsync({ itemId, notes: response.notes });
     }
     setIsSubmitting(false);
-    // Clear the response for this item after submitting
     setItemResponses((prev) => {
       const next = { ...prev };
       delete next[itemId];
@@ -141,6 +132,17 @@ export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
   const handleCancel = async () => {
     if (!confirm('Are you sure you want to cancel this transfer?')) return;
     await cancelMutation.mutateAsync();
+  };
+
+  // 🚀 The Variant Label Helper
+  const getVariantLabel = (item: TransferItem) => {
+    const isLpg = item.product.isLpg || item.product.isCylinderTracked;
+    if (isLpg) {
+      if (item.lpgComponent === 'REFILL') return <span className="text-blue-600 font-semibold text-xs ml-1">(Gas Refill)</span>;
+      if (item.lpgComponent === 'CYLINDER') return <span className="text-purple-600 font-semibold text-xs ml-1">(Complete Set)</span>;
+      if (!item.lpgComponent) return <span className="text-amber-600 font-semibold text-xs ml-1">(Empty Shell)</span>;
+    }
+    return null;
   };
 
   const cfg = statusConfig[transfer.status];
@@ -237,7 +239,6 @@ export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
             {transfer.items.map((item) => {
               const itemCfg = itemStatusConfig[item.status];
               const response = itemResponses[item.id];
-              const vLabel = item.variant ? variantLabel[item.variant] : null;
 
               return (
                 <div
@@ -249,15 +250,13 @@ export function TransferDetailModal({ transfer, onClose, onUpdate }: Props) {
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {item.product.isCylinderTracked && (
+                        {(item.product.isCylinderTracked || item.product.isLpg) && (
                           <Flame className="h-4 w-4 text-orange-500 shrink-0" />
                         )}
-                        <span className="font-medium">{item.product.name}</span>
-                        {vLabel && (
-                          <Badge variant="outline" className={`text-xs ${vLabel.color}`}>
-                            {vLabel.label}
-                          </Badge>
-                        )}
+                        {/* 🚀 Render the new Variant Label right here */}
+                        <span className="font-medium">
+                          {item.product.name} {getVariantLabel(item)}
+                        </span>
                       </div>
                       <p className="text-sm text-muted-foreground">
                         Quantity: {item.quantity}
