@@ -26,9 +26,10 @@ interface Transfer {
 
 interface TransferItem {
   id: string;
-  product: { id: string; name: string };
+  product: { id: string; name: string; isLpg?: boolean; isCylinderTracked?: boolean };
   quantity: number;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  lpgComponent?: 'REFILL' | 'CYLINDER' | null; // 🚀 ADDED: Backend LPG tracking
   notes?: string;
 }
 
@@ -78,6 +79,17 @@ export default function TransfersPage() {
   const canCancel = (t: Transfer) =>
     isOutgoing(t) && t.status === 'PENDING' &&
     (t.requestedBy.id === user?.id || user?.role === 'SUPER_ADMIN');
+
+  // 🚀 ADDED: Helper to translate backend LPG data into beautiful labels
+  const getVariantLabel = (item: TransferItem) => {
+    const isLpg = item.product.isLpg || item.product.isCylinderTracked;
+    if (isLpg) {
+      if (item.lpgComponent === 'REFILL') return <span className="text-blue-600 font-semibold text-xs ml-1">(Gas Refill)</span>;
+      if (item.lpgComponent === 'CYLINDER') return <span className="text-purple-600 font-semibold text-xs ml-1">(Complete Set)</span>;
+      if (!item.lpgComponent) return <span className="text-amber-600 font-semibold text-xs ml-1">(Empty Shell)</span>;
+    }
+    return null;
+  };
 
   const EmptyState = ({ message }: { message: string }) => (
     <Card>
@@ -137,7 +149,7 @@ export default function TransfersPage() {
           <div className="pt-2 border-t space-y-1">
             {transfer.items.map((item) => (
               <div key={item.id} className="flex items-center justify-between text-sm">
-                <span>{item.product.name} ×{item.quantity}</span>
+                <span>{item.product.name} {getVariantLabel(item)} ×{item.quantity}</span>
                 <Badge variant="secondary" className={`text-xs ${itemStatusConfig[item.status].color}`}>
                   {itemStatusConfig[item.status].label}
                 </Badge>
@@ -166,7 +178,7 @@ export default function TransfersPage() {
           <TabsTrigger value="incoming" className="flex items-center gap-1">
             <ArrowDownLeft className="h-4 w-4" />Incoming
             {tabTransfers.incoming.length > 0 && (
-              <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-purple-600">
+              <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-purple-600 text-white">
                 {tabTransfers.incoming.length}
               </Badge>
             )}
@@ -174,7 +186,7 @@ export default function TransfersPage() {
           <TabsTrigger value="outgoing" className="flex items-center gap-1">
             <ArrowUpRight className="h-4 w-4" />Outgoing
             {tabTransfers.outgoing.length > 0 && (
-              <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-gray-600">
+              <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-gray-600 text-white">
                 {tabTransfers.outgoing.length}
               </Badge>
             )}
