@@ -23,7 +23,6 @@ import AuditLogs from '@/pages/admin/AuditLogs'
 import AdminDevices from '@/pages/admin/Devices'
 import AdminReturns from '@/pages/admin/returns'
 
-
 // Manager Pages
 import ManagerDashboard from '@/pages/manager/Dashboard'
 import Reports from '@/pages/manager/Reports'
@@ -93,9 +92,8 @@ function App() {
 
   return (
     <>
-      {/* 🚀 NEW: Global Network Status Indicator */}
       <NetworkStatus />
-      
+
       <Routes>
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<Login />} />
@@ -111,8 +109,6 @@ function App() {
           <Route path="/admin/branches" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}><Branches /></ProtectedRoute>} />
           <Route path="/admin/audit-logs" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}><AuditLogs /></ProtectedRoute>} />
           <Route path="/admin/devices" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}><AdminDevices /></ProtectedRoute>} />
-          
-          {/* 🚀 NEW: Admin Reports added here! */}
           <Route path="/admin/reports" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}><Reports /></ProtectedRoute>} />
 
           {/* Admin & Manager Routes */}
@@ -121,6 +117,8 @@ function App() {
           <Route path="/admin/invoices" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}><Invoices /></ProtectedRoute>} />
           <Route path="/admin/sales-history" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}><SalesHistory /></ProtectedRoute>} />
           
+          <Route path="/admin/returns" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}><AdminReturns /></ProtectedRoute>} />
+
           <Route path="/manager/dashboard" element={<ProtectedRoute allowedRoles={[UserRole.OVERALL_MANAGER]}><ManagerDashboard /></ProtectedRoute>} />
           <Route path="/manager/reports" element={<ProtectedRoute allowedRoles={[UserRole.OVERALL_MANAGER]}><Reports /></ProtectedRoute>} />
 
