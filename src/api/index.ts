@@ -21,10 +21,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const message = error.response?.data?.message || error.message || 'An error occurred'
-    if (error.response?.status === 401) {
+    
+    // 🚀 THE FIX: Prevent the hard redirect if the user is already on the login page!
+    if (error.response?.status === 401 && window.location.pathname !== '/login') {
       useAuthStore.getState().clearAuth()
       window.location.href = '/login'
     }
+    
     return Promise.reject({ ...error, message })
   },
 )
@@ -116,7 +119,7 @@ export const inventoryApi = {
   ) => api.post(`/inventory/${id}/adjust`, payload),
   getLowStock: () => api.get('/inventory/low-stock'),
   getMovements: (params?: any) => api.get('/inventory/movements', { params }),
-  delete: (id: string) => api.delete(`/inventory/${id}`), // 🚀 Fixed comma syntax here
+  delete: (id: string) => api.delete(`/inventory/${id}`),
 }
 
 // ── Customers ─────────────────────────────────────────────────────────────────
