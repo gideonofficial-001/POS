@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
-import { FileText, Phone, Users, Copy, CheckCircle, Store } from 'lucide-react'
+import { FileText, Phone, Users, Copy, CheckCircle, Store, User } from 'lucide-react' // 🚀 Added User icon
 
 const Invoices = () => {
   const { user } = useAuthStore()
@@ -105,7 +105,8 @@ const Invoices = () => {
           <h1 className="text-2xl font-bold">{isAdmin ? 'All Branch Invoices' : 'Invoices'}</h1>
           <p className="text-muted-foreground">Manage customer invoices and payments</p>
         </div>
-        <Button onClick={() => setShowCustomersModal(true)} variant="outline" className="bg-white">
+        {/* 🚀 Changed bg-white to bg-background */}
+        <Button onClick={() => setShowCustomersModal(true)} variant="outline" className="bg-background">
           <Users className="w-4 h-4 mr-2" />
           View Customers
         </Button>
@@ -113,7 +114,8 @@ const Invoices = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {invoices?.map((invoice: any) => (
-          <Card key={invoice.id} className={`hover:shadow-md transition-shadow bg-white ${invoice.status === 'CANCELLED' ? 'opacity-60' : ''}`}>
+          {/* 🚀 Removed bg-white, added bg-card */}
+          <Card key={invoice.id} className={`hover:shadow-md transition-shadow bg-card ${invoice.status === 'CANCELLED' ? 'opacity-60' : ''}`}>
             <CardContent className="p-5">
               <div className="flex items-start justify-between mb-3">
                 <div>
@@ -122,15 +124,24 @@ const Invoices = () => {
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   {getStatusBadge(invoice.status)}
+                  
                   {isAdmin && invoice.branch && (
-                    <Badge variant="outline" className="bg-slate-50 text-[10px] py-0">
+                    <Badge variant="outline" className="bg-muted text-[10px] py-0">
                       <Store className="w-3 h-3 mr-1" /> {invoice.branch.name}
+                    </Badge>
+                  )}
+                  
+                  {/* 🚀 NEW: Shows the staff member who generated the invoice */}
+                  {isAdmin && invoice.sale?.user && (
+                    <Badge variant="outline" className="bg-muted font-normal text-[10px] py-0 mt-0.5">
+                      <User className="w-3 h-3 mr-1" /> {invoice.sale.user.firstName} {invoice.sale.user.lastName}
                     </Badge>
                   )}
                 </div>
               </div>
 
-              <div className="space-y-2 mt-4 bg-muted/30 p-3 rounded-lg">
+              {/* 🚀 Changed bg-muted/30 to bg-muted/50 for better dark mode contrast */}
+              <div className="space-y-2 mt-4 bg-muted/50 p-3 rounded-lg">
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <FileText className="w-4 h-4 text-muted-foreground" />
                   {invoice.customer?.name || 'Unknown Customer'}
@@ -177,7 +188,8 @@ const Invoices = () => {
       </div>
 
       {invoices?.length === 0 && (
-        <div className="text-center py-12 text-muted-foreground bg-white border rounded-xl shadow-sm">
+        {/* 🚀 Changed bg-white to bg-card */}
+        <div className="text-center py-12 text-muted-foreground bg-card border rounded-xl shadow-sm">
           <FileText className="w-12 h-12 mx-auto mb-4 opacity-30" />
           <p>No invoices found in the system.</p>
         </div>
@@ -195,7 +207,8 @@ const Invoices = () => {
               <p className="text-center text-sm text-muted-foreground py-4">No active customers found.</p>
             ) : (
               customers.map((c: any) => (
-                <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg bg-slate-50">
+                {/* 🚀 Changed bg-slate-50 to bg-muted/50 */}
+                <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
                   <div>
                     <p className="font-semibold text-sm">{c.name}</p>
                     <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
