@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/store'
+import { useThemeStore } from '@/store/theme'
 import { UserRole } from '@/types'
 import { SplashScreen } from '@/components/SplashScreen'
 import { NetworkStatus } from '@/components/NetworkStatus'
@@ -73,6 +74,7 @@ const RoleRedirect = () => {
 function App() {
   const [showSplash, setShowSplash] = useState(true)
   const [isReady, setIsReady] = useState(false)
+  const { theme } = useThemeStore()
 
   useEffect(() => {
     const init = async () => {
@@ -85,6 +87,15 @@ function App() {
     }
     init()
   }, [])
+
+  useEffect(() => {
+    const root = window.document.documentElement
+    if (theme === 'dark') {
+      root.classList.add('dark')
+    } else {
+      root.classList.remove('dark')
+    }
+  }, [theme])
 
   if (showSplash) {
     return <SplashScreen onComplete={() => { if (isReady) setShowSplash(false) }} />
@@ -116,7 +127,6 @@ function App() {
           <Route path="/customers" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}><Customers /></ProtectedRoute>} />
           <Route path="/admin/invoices" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}><Invoices /></ProtectedRoute>} />
           <Route path="/admin/sales-history" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}><SalesHistory /></ProtectedRoute>} />
-          
           <Route path="/admin/returns" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN, UserRole.OVERALL_MANAGER]}><AdminReturns /></ProtectedRoute>} />
 
           <Route path="/manager/dashboard" element={<ProtectedRoute allowedRoles={[UserRole.OVERALL_MANAGER]}><ManagerDashboard /></ProtectedRoute>} />
