@@ -1,12 +1,14 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuthStore, useSidebarStore } from '@/store'
+import { useThemeStore } from '@/store/theme'
 import { UserRole } from '@/types'
 import { Logo } from '@/components/Logo'
 import {
   LayoutDashboard, Users, Building2, PackageSearch, UsersRound,
   ShoppingCart, FileText, RotateCcw, History, BarChart3,
   ClipboardList, Settings, LogOut, Bell, ArrowLeftRight,
-  Receipt, ChevronLeft, ChevronRight, X, Menu, Smartphone
+  Receipt, ChevronLeft, ChevronRight, X, Menu, Smartphone,
+  Sun, Moon
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -14,6 +16,7 @@ import { toast } from 'sonner'
 const Sidebar = () => {
   const { user, clearAuth } = useAuthStore()
   const { collapsed, mobileOpen, toggleCollapsed, setMobileOpen } = useSidebarStore()
+  const { theme, toggleTheme } = useThemeStore()
   const location = useLocation()
 
   const handleLogout = () => {
@@ -22,7 +25,7 @@ const Sidebar = () => {
     window.location.href = '/login'
   }
 
-    const getNavItems = () => {
+  const getNavItems = () => {
     if (!user) return []
     const items = []
 
@@ -35,7 +38,7 @@ const Sidebar = () => {
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
         { path: '/admin/sales-history', icon: History, label: 'Sales History' },
-        { path: '/admin/returns', icon: RotateCcw, label: 'Returns' }, // 🚀 ADDED HERE
+        { path: '/admin/returns', icon: RotateCcw, label: 'Returns' },
         { path: '/admin/transfers', icon: ArrowLeftRight, label: 'Transfers' },
         { path: '/admin/devices',   icon: Smartphone,    label: 'Devices' },
         { path: '/admin/reports',   icon: BarChart3,     label: 'Reports' },
@@ -52,7 +55,7 @@ const Sidebar = () => {
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
         { path: '/admin/sales-history', icon: History, label: 'Sales History' },
-        { path: '/admin/returns', icon: RotateCcw, label: 'Returns' }, // 🚀 ADDED HERE
+        { path: '/admin/returns', icon: RotateCcw, label: 'Returns' },
         { path: '/manager/reports', icon: BarChart3, label: 'Reports' },
         { path: '/notifications', icon: Bell, label: 'Notifications' },
         { path: '/settings', icon: Settings, label: 'Settings' },
@@ -76,7 +79,6 @@ const Sidebar = () => {
 
     return items
   }
-
 
   const navItems = getNavItems()
 
@@ -116,7 +118,15 @@ const Sidebar = () => {
         </ul>
       </nav>
 
-      <div className="p-3 border-t">
+      <div className="p-3 border-t space-y-2">
+        <button 
+          onClick={toggleTheme} 
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground w-full transition-colors"
+        >
+          {theme === 'dark' ? <Moon className="w-5 h-5 shrink-0" /> : <Sun className="w-5 h-5 shrink-0" />}
+          {!collapsed && <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>}
+        </button>
+
         <button onClick={handleLogout} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 w-full transition-colors">
           <LogOut className="w-5 h-5 shrink-0" />
           {!collapsed && <span>Logout</span>}
