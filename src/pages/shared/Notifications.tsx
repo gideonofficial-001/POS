@@ -296,7 +296,7 @@ const Notifications = () => {
                       {authCode && (
                         <div className="flex items-center gap-2 pt-1"
                           onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-2 bg-white border border-amber-300 rounded-lg px-3 py-1.5">
+                          <div className="flex items-center gap-2 bg-background border border-amber-300 rounded-lg px-3 py-1.5">
                             <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
                             <span className="font-mono text-xl font-bold tracking-[0.3em] text-amber-800">
                               {authCode}
