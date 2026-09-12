@@ -112,6 +112,20 @@ const NewSale = () => {
 
   const filteredInventory = inventory?.filter((inv: any) => {
     if (!inv.product?.isActive) return false
+
+    // Determine available stock for this product type
+    const isLpg = inv.product.type === 'LPG_REFILL' || inv.product.type === 'LPG_CYLINDER'
+    const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity
+
+    // Hide out-of-stock items entirely — they're unclickable anyway
+    if (availableStock === 0) return false
+
+    // In wholesale mode, hide products with no wholesale price set (0 = not for wholesale)
+    if (saleType === SaleType.WHOLESALE) {
+      const wholesalePrice = Number(inv.product.wholesalePrice || 0)
+      if (wholesalePrice === 0) return false
+    }
+
     if (search.trim() === '') return true
     return (
       inv.product.name.toLowerCase().includes(search.toLowerCase()) ||
