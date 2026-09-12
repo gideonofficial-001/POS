@@ -12,14 +12,10 @@ import { formatCurrency } from '@/lib/utils'
 import { Calendar, Search, Printer, Store, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
 
-// Helper function to calculate the "Business Date" based on a 9:00 PM cutoff.
+// Helper function to get the calendar date of a sale (midnight cutoff — standard business day).
 const getBusinessDate = (dateString: string) => {
   const date = new Date(dateString)
-  // If the time is 21:00 (9 PM) or later, it counts for the next day
-  if (date.getHours() >= 21) {
-    date.setDate(date.getDate() + 1)
-  }
-  // Return just the YYYY-MM-DD part for grouping/filtering
+  // No adjustment needed: the business day runs 00:00–23:59 like a standard calendar day.
   return date.toISOString().split('T')[0]
 }
 
@@ -30,7 +26,7 @@ const SalesHistory = () => {
   const [search, setSearch] = useState('')
   const [view, setView] = useState('all') // 'all', 'retail', 'wholesale'
   
-  // Date filtering now defaults to today's "Business Date"
+  // Date filtering defaults to today's calendar date
   const todayBusinessDate = getBusinessDate(new Date().toISOString())
   const [dateFilter, setDateFilter] = useState(todayBusinessDate)
   
@@ -62,8 +58,6 @@ const SalesHistory = () => {
         params.branchId = selectedBranchId
       }
       
-      // Note: We fetch ALL sales for the selected branch(es) and then filter by Business Date on the client side. 
-      // This ensures the 9PM logic is perfectly applied without needing complex SQL queries.
       const response = await salesApi.getAll(params)
       return response.data
     },
@@ -77,7 +71,6 @@ const SalesHistory = () => {
     const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
     const daysUntilEnd = lastDayOfMonth.getDate() - today.getDate();
 
-    // Check if it's the last two days of the month
     if (daysUntilEnd <= 1) {
       const currentMonthKey = `${today.getFullYear()}-${today.getMonth()}`;
       const hasDownloaded = localStorage.getItem(`monthly_receipt_downloaded_${currentMonthKey}`);
@@ -89,8 +82,6 @@ const SalesHistory = () => {
   }, [isAdmin]);
 
   const handleDownloadMonthlyReceipt = () => {
-    // Logic to compile and download the monthly CSV/PDF would go here.
-    // For now, we simulate success and set the localStorage flag.
     const today = new Date();
     const currentMonthKey = `${today.getFullYear()}-${today.getMonth()}`;
     
@@ -110,7 +101,6 @@ const SalesHistory = () => {
       if (view === 'retail' && sale.type !== 'CASH') return
       if (view === 'wholesale' && sale.type !== 'WHOLESALE') return
 
-      // Apply the 9:00 PM Business Date logic
       const businessDate = getBusinessDate(sale.createdAt)
       if (dateFilter && businessDate !== dateFilter) return
 
@@ -132,7 +122,6 @@ const SalesHistory = () => {
 
         rows.push({
           id: item.id || `${sale.id}-${index}`,
-          // Display the exact real-world time for auditing, even if grouped into the next day's business date
           date: exactTime.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
           businessDate,
           description,
@@ -161,7 +150,7 @@ const SalesHistory = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
         <div>
           <h1 className="text-2xl font-bold">Sales History</h1>
-          <p className="text-muted-foreground">Transactions cutoff at 9:00 PM daily.</p>
+          <p className="text-muted-foreground">Daily transactions grouped by calendar date.</p>
         </div>
         <Button onClick={handlePrint} className="bg-emerald-600 hover:bg-emerald-700 text-white">
           <Printer className="w-4 h-4 mr-2" /> Print Statement
@@ -169,13 +158,13 @@ const SalesHistory = () => {
       </div>
 
       {/* ── FILTERS ── */}
-      <div className="flex flex-col lg:flex-row gap-4 justify-between items-center bg-white p-3 rounded-lg border shadow-sm print:hidden">
+      <div className="flex flex-col lg:flex-row gap-4 justify-between items-center bg-card p-3 rounded-lg border shadow-sm print:hidden">
         <div className="flex flex-col lg:flex-row w-full lg:w-auto gap-4">
           
           {/* Admin Branch Selector */}
           {isAdmin && (
             <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
-              <SelectTrigger className="w-full lg:w-48 bg-slate-50 border-slate-200">
+              <SelectTrigger className="w-full lg:w-48 border">
                 <Store className="w-4 h-4 mr-2 text-muted-foreground" />
                 <SelectValue placeholder="Select Branch" />
               </SelectTrigger>
@@ -206,7 +195,7 @@ const SalesHistory = () => {
         </div>
         
         <div className="flex p-1 bg-muted/50 rounded-lg border w-full lg:w-auto">
-          <button onClick={() => setView('all')} className={`flex-1 lg:px-6 py-1.5 text-sm font-bold rounded-md transition-all ${view === 'all' ? 'bg-white shadow text-primary' : 'text-muted-foreground'}`}>All</button>
+          <button onClick={() => setView('all')} className={`flex-1 lg:px-6 py-1.5 text-sm font-bold rounded-md transition-all ${view === 'all' ? 'bg-card shadow text-primary' : 'text-muted-foreground'}`}>All</button>
           <button onClick={() => setView('retail')} className={`flex-1 lg:px-6 py-1.5 text-sm font-bold rounded-md transition-all ${view === 'retail' ? 'bg-blue-600 shadow text-white' : 'text-muted-foreground'}`}>Retail</button>
           <button onClick={() => setView('wholesale')} className={`flex-1 lg:px-6 py-1.5 text-sm font-bold rounded-md transition-all ${view === 'wholesale' ? 'bg-purple-600 shadow text-white' : 'text-muted-foreground'}`}>Wholesale</button>
         </div>
@@ -223,7 +212,7 @@ const SalesHistory = () => {
       </div>
 
       {/* ── TRANSACTION TABLE ── */}
-      <div className="bg-white border rounded-xl shadow-sm overflow-hidden print:border-none print:shadow-none">
+      <div className="bg-card border rounded-xl shadow-sm overflow-hidden print:border-none print:shadow-none">
         <div className="bg-amber-500 text-white font-bold p-3 uppercase tracking-wider text-sm hidden print:block">
           Transaction History
         </div>
@@ -231,14 +220,14 @@ const SalesHistory = () => {
         <div className="overflow-x-auto">
           <Table className="print:text-xs">
             <TableHeader>
-              <TableRow className="bg-slate-100 hover:bg-slate-100 print:bg-gray-200">
-                <TableHead className="w-[50px] font-bold text-slate-700">#</TableHead>
-                <TableHead className="font-bold text-slate-700 whitespace-nowrap">EXACT TIME</TableHead>
-                <TableHead className="font-bold text-slate-700 min-w-[250px]">DESCRIPTION</TableHead>
-                <TableHead className="font-bold text-slate-700">TYPE</TableHead>
-                <TableHead className="font-bold text-slate-700">REFERENCE</TableHead>
-                {isAdmin && selectedBranchId === 'all' && <TableHead className="font-bold text-slate-700 print:hidden">BRANCH</TableHead>}
-                <TableHead className="font-bold text-slate-700 text-right">AMOUNT (KES)</TableHead>
+              <TableRow className="bg-muted/30 hover:bg-muted/30 print:bg-gray-200">
+                <TableHead className="w-[50px] font-bold">#</TableHead>
+                <TableHead className="font-bold whitespace-nowrap">EXACT TIME</TableHead>
+                <TableHead className="font-bold min-w-[250px]">DESCRIPTION</TableHead>
+                <TableHead className="font-bold">TYPE</TableHead>
+                <TableHead className="font-bold">REFERENCE</TableHead>
+                {isAdmin && selectedBranchId === 'all' && <TableHead className="font-bold print:hidden">BRANCH</TableHead>}
+                <TableHead className="font-bold text-right">AMOUNT (KES)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -248,7 +237,7 @@ const SalesHistory = () => {
                 <TableRow><TableCell colSpan={isAdmin && selectedBranchId === 'all' ? 7 : 6} className="text-center py-10 text-muted-foreground">No transactions found for the selected criteria.</TableCell></TableRow>
               ) : (
                 transactionRows.map((row, idx) => (
-                  <TableRow key={row.id} className="hover:bg-slate-50 print:border-b print:border-gray-300">
+                  <TableRow key={row.id} className="hover:bg-muted/20 print:border-b print:border-gray-300">
                     <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
                     <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{row.date}</TableCell>
                     <TableCell className="font-medium">
@@ -260,10 +249,10 @@ const SalesHistory = () => {
                         {row.type}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-slate-600">{row.reference}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{row.reference}</TableCell>
                     {isAdmin && selectedBranchId === 'all' && (
                       <TableCell className="print:hidden">
-                        <Badge variant="secondary" className="text-[10px] font-normal py-0 bg-slate-100">
+                        <Badge variant="secondary" className="text-[10px] font-normal py-0">
                           <Store className="w-3 h-3 mr-1 text-muted-foreground" /> {row.branchName}
                         </Badge>
                       </TableCell>
@@ -279,7 +268,7 @@ const SalesHistory = () => {
         </div>
 
         {/* ── FOOTER TOTALS ── */}
-        <div className="bg-slate-50 border-t p-4 flex justify-end items-center print:bg-transparent print:border-t-2 print:border-black print:mt-4">
+        <div className="bg-muted/30 border-t p-4 flex justify-end items-center print:bg-transparent print:border-t-2 print:border-black print:mt-4">
           <div className="text-right">
             <p className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-1">Total Sales</p>
             <p className="text-2xl font-black text-emerald-600 print:text-black">{formatCurrency(totalAmount)}</p>
@@ -300,7 +289,7 @@ const SalesHistory = () => {
           </DialogHeader>
           <div className="py-4">
             <p className="text-sm text-muted-foreground">
-              Downloading will compile all sales data up to the 9:00 PM cutoff for the entire month. Once downloaded, this prompt will not disturb you again until next month.
+              Downloading will compile all sales data for the entire month. Once downloaded, this prompt will not disturb you again until next month.
             </p>
           </div>
           <DialogFooter>
