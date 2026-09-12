@@ -265,7 +265,7 @@ export function MpesaPaymentModal({ amount, saleId, invoiceId, onSuccess, onClos
                     padding: '0.75rem 1rem', fontSize: '1.125rem', fontWeight: 600,
                     border: `2px solid ${phoneError ? '#ef4444' : '#d1d5db'}`,
                     borderRadius: '0.625rem', outline: 'none', width: '100%', boxSizing: 'border-box',
-                    letterSpacing: '0.05em',
+                    letterSpacing: '0.05em', backgroundColor: '#ffffff', color: '#111827',
                   }}
                 />
                 {phoneError && (
@@ -347,6 +347,7 @@ export function MpesaPaymentModal({ amount, saleId, invoiceId, onSuccess, onClos
                     border: `2px solid ${codeError ? '#ef4444' : '#d1d5db'}`,
                     borderRadius: '0.625rem', outline: 'none', width: '100%', boxSizing: 'border-box',
                     letterSpacing: '0.15em', fontFamily: 'monospace', textTransform: 'uppercase',
+                    backgroundColor: '#ffffff', color: '#111827',
                   }}
                 />
                 {codeError && (
