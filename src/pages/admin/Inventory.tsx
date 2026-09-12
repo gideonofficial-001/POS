@@ -230,7 +230,7 @@ const Inventory = () => {
                 <ArrowLeft className="w-5 h-5" />
               </button>
             )}
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">
+            <h1 className="text-3xl font-black text-foreground tracking-tight">
               {activeBranch ? `${activeBranch.name} Inventory` : 'Inventory'}
             </h1>
           </div>
@@ -248,7 +248,7 @@ const Inventory = () => {
         )}
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-4 justify-between items-center bg-white p-3 rounded-lg border shadow-sm">
+      <div className="flex flex-col lg:flex-row gap-4 justify-between items-center bg-card p-3 rounded-lg border shadow-sm">
         <div className="flex w-full lg:w-auto gap-4">
           <Input placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)} className="w-full lg:w-80" />
           <Button variant={showLowStock ? "destructive" : "secondary"} onClick={() => setShowLowStock(!showLowStock)} className="whitespace-nowrap">
@@ -259,13 +259,13 @@ const Inventory = () => {
         <div className="flex p-1 bg-muted/50 rounded-lg border w-full lg:w-auto">
           <button
             onClick={() => setPricingMode('RETAIL')}
-            className={`flex-1 lg:px-6 py-1.5 text-sm font-bold rounded-md transition-all ${pricingMode === 'RETAIL' ? 'bg-white shadow text-primary' : 'text-muted-foreground hover:text-gray-900'}`}
+            className={`flex-1 lg:px-6 py-1.5 text-sm font-bold rounded-md transition-all ${pricingMode === 'RETAIL' ? 'bg-card shadow text-primary' : 'text-muted-foreground hover:text-foreground'}`}
           >
             Retail Prices
           </button>
           <button
             onClick={() => setPricingMode('WHOLESALE')}
-            className={`flex-1 lg:px-6 py-1.5 text-sm font-bold rounded-md transition-all ${pricingMode === 'WHOLESALE' ? 'bg-purple-600 shadow text-white' : 'text-muted-foreground hover:text-gray-900'}`}
+            className={`flex-1 lg:px-6 py-1.5 text-sm font-bold rounded-md transition-all ${pricingMode === 'WHOLESALE' ? 'bg-purple-600 shadow text-white' : 'text-muted-foreground hover:text-foreground'}`}
           >
             Wholesale Prices
           </button>
@@ -285,7 +285,7 @@ const Inventory = () => {
 
             return (
               <div key={category.id} className="flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
-                <div className="bg-slate-50/80 p-4 border-b flex items-center justify-between">
+                <div className="bg-muted/30 p-4 border-b flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <h2 className="text-xl font-bold tracking-tight text-primary">
                       {category.name}
@@ -453,7 +453,7 @@ const Inventory = () => {
           <div className="space-y-4 py-2">
             <p className="font-semibold text-base">"{deleteTarget?.name}"</p>
 
-            <div className={`rounded-lg border p-3 text-sm space-y-1.5 ${deleteTarget?.isGlobal ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-800'}`}>
+            <div className={`rounded-lg border p-3 text-sm space-y-1.5 ${deleteTarget?.isGlobal ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 text-amber-800 dark:text-amber-200' : 'bg-muted/50 border-muted text-foreground'}`}>
               <p className="font-bold flex items-center gap-1.5">
                 {deleteTarget?.isGlobal ? <Globe className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}
                 {deleteTarget?.isGlobal ? 'Global Action (HQ)' : 'Local Branch Action'}
