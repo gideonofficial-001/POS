@@ -19,7 +19,6 @@ const Customers = () => {
   const [showCreate, setShowCreate] = useState(false)
   const [search, setSearch] = useState('')
   
-  // Modals state
   const [editCustomer, setEditCustomer] = useState<any>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [formData, setFormData] = useState({ name: '', phone: '', email: '', address: '', notes: '', creditLimit: '' })
@@ -107,11 +106,11 @@ const Customers = () => {
         </Button>
       </div>
 
-      <Input placeholder="Search customers..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-sm bg-white" />
+      <Input placeholder="Search customers..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-sm" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered?.map((customer: any) => (
-          <Card key={customer.id} className="hover:shadow-md transition-shadow bg-white">
+          <Card key={customer.id} className="hover:shadow-md transition-shadow bg-card">
             <CardContent className="p-5">
               <div className="flex items-start justify-between mb-3">
                 <div>
