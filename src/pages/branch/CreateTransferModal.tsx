@@ -98,35 +98,34 @@ export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => voi
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
-      {/* Container is explicitly locked to 95vh on mobile, 85vh on PC */}
-      <DialogContent className="max-w-5xl h-[95vh] lg:h-[85vh] p-0 flex flex-col overflow-hidden bg-white gap-0">
+      <DialogContent className="max-w-5xl h-[95vh] lg:h-[85vh] p-0 flex flex-col overflow-hidden bg-card gap-0">
         
-        <DialogHeader className="px-4 lg:px-6 py-3 lg:py-4 border-b shrink-0 bg-white">
+        <DialogHeader className="px-4 lg:px-6 py-3 lg:py-4 border-b shrink-0 bg-card">
           <DialogTitle className="flex items-center gap-2 text-lg lg:text-xl">
             <ArrowLeftRight className="w-5 h-5 text-blue-600" /> New Transfer
           </DialogTitle>
         </DialogHeader>
 
         {/* The split screen wrapper */}
-        <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-3 bg-slate-50">
+        <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-3 bg-muted/30">
           
-          {/* LEFT: PRODUCTS LIST (Takes remaining height on mobile) */}
-          <div className="flex-1 lg:col-span-2 flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r bg-white">
-            <div className="p-3 lg:p-4 border-b space-y-2 lg:space-y-3 shrink-0 bg-slate-50/80">
+          {/* LEFT: PRODUCTS LIST */}
+          <div className="flex-1 lg:col-span-2 flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r bg-card">
+            <div className="p-3 lg:p-4 border-b space-y-2 lg:space-y-3 shrink-0 bg-muted/20">
               <select 
                 value={toBranchId} onChange={(e) => setToBranchId(e.target.value)}
-                className="w-full p-2.5 lg:p-3 border border-blue-200 bg-white rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none shadow-sm"
+                className="w-full p-2.5 lg:p-3 border border-blue-200 bg-card rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none shadow-sm"
               >
                 <option value="">-- Select Destination Branch --</option>
                 {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
               <div className="relative">
                 <Search className="absolute left-3.5 top-3 lg:top-3.5 h-4 w-4 lg:h-5 lg:w-5 text-muted-foreground" />
-                <Input placeholder="Search inventory..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 lg:pl-12 h-10 lg:h-12 bg-white shadow-sm" />
+                <Input placeholder="Search inventory..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 lg:pl-12 h-10 lg:h-12 shadow-sm" />
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 lg:p-4 bg-slate-50/50">
+            <div className="flex-1 overflow-y-auto p-3 lg:p-4 bg-muted/10">
               {filteredInventory.length === 0 ? (
                 <div className="text-center py-10 text-muted-foreground"><Package className="w-10 h-10 mx-auto opacity-30 mb-2" />No products found</div>
               ) : (
@@ -138,7 +137,7 @@ export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => voi
                     const outOfStock = stock === 0 && !isLpg
 
                     return (
-                      <Card key={p.id} className={`cursor-pointer hover:border-blue-400 bg-white shadow-sm transition-colors ${outOfStock ? 'opacity-50' : ''}`}
+                      <Card key={p.id} className={`cursor-pointer hover:border-blue-400 bg-card shadow-sm transition-colors ${outOfStock ? 'opacity-50' : ''}`}
                         onClick={() => {
                           if (isLpg) { setSelectedInvItem(inv); setLpgModalOpen(true) }
                           else if (!outOfStock) handleAddItem(p, 'STANDARD', '', inv.quantity)
@@ -149,7 +148,7 @@ export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => voi
                             {isLpg ? <Flame size={14} /> : <Package size={14} />}
                           </div>
                           <h4 className="font-semibold text-xs lg:text-sm leading-tight">{p.name}</h4>
-                          <span className="text-[10px] lg:text-xs font-bold text-muted-foreground bg-slate-100 w-fit px-2 py-0.5 rounded-full">
+                          <span className="text-[10px] lg:text-xs font-bold text-muted-foreground bg-muted w-fit px-2 py-0.5 rounded-full">
                             {isLpg ? `Gas: ${inv.fullCylinders || 0} | Shells: ${(inv.quantity || 0) - (inv.fullCylinders || 0)}` : `${inv.quantity} in stock`}
                           </span>
                         </CardContent>
@@ -161,9 +160,9 @@ export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => voi
             </div>
           </div>
 
-          {/* RIGHT: CART (Locks to 40% height on mobile, full height on PC) */}
-          <div className="h-[40%] lg:h-auto lg:flex-1 flex flex-col min-h-0 bg-slate-50">
-            <div className="px-3 lg:px-4 py-3 lg:py-5 border-b font-bold text-sm lg:text-lg shrink-0 bg-white">
+          {/* RIGHT: CART */}
+          <div className="h-[40%] lg:h-auto lg:flex-1 flex flex-col min-h-0 bg-muted/20">
+            <div className="px-3 lg:px-4 py-3 lg:py-5 border-b font-bold text-sm lg:text-lg shrink-0 bg-card">
               Transfer Cart ({items.length})
             </div>
             
@@ -174,20 +173,20 @@ export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => voi
                   <p className="text-sm">Cart is empty</p>
                 </div>
               ) : items.map(item => (
-                <div key={item.cartId} className="flex items-center gap-2 p-2 bg-white border rounded-md text-sm shadow-sm">
+                <div key={item.cartId} className="flex items-center gap-2 p-2 bg-card border rounded-md text-sm shadow-sm">
                   <div className="flex-1 leading-tight font-medium text-[11px] lg:text-xs">{item.name}</div>
-                  <div className="flex items-center gap-1 bg-slate-50 rounded-md border p-0.5 shrink-0">
-                    <Button variant="ghost" size="icon" className="h-5 w-5 lg:h-6 lg:w-6 hover:bg-white" onClick={() => handleUpdateQty(item.cartId, -1)}><Minus className="w-3 h-3" /></Button>
+                  <div className="flex items-center gap-1 bg-muted/50 rounded-md border p-0.5 shrink-0">
+                    <Button variant="ghost" size="icon" className="h-5 w-5 lg:h-6 lg:w-6 hover:bg-muted" onClick={() => handleUpdateQty(item.cartId, -1)}><Minus className="w-3 h-3" /></Button>
                     <span className="w-4 text-center font-bold text-[11px] lg:text-xs">{item.quantity}</span>
-                    <Button variant="ghost" size="icon" className="h-5 w-5 lg:h-6 lg:w-6 hover:bg-white" onClick={() => handleUpdateQty(item.cartId, 1)}><Plus className="w-3 h-3" /></Button>
+                    <Button variant="ghost" size="icon" className="h-5 w-5 lg:h-6 lg:w-6 hover:bg-muted" onClick={() => handleUpdateQty(item.cartId, 1)}><Plus className="w-3 h-3" /></Button>
                   </div>
                   <Button variant="ghost" size="icon" className="h-6 w-6 lg:h-7 lg:w-7 text-destructive hover:bg-red-100 shrink-0" onClick={() => handleRemove(item.cartId)}><Trash2 className="w-3 h-3 lg:w-4 lg:h-4" /></Button>
                 </div>
               ))}
             </div>
 
-            <div className="p-3 lg:p-4 border-t bg-white shrink-0 space-y-2 lg:space-y-3">
-              <Input placeholder="Optional notes..." value={notes} onChange={e => setNotes(e.target.value)} className="bg-slate-50 h-9 lg:h-10 text-sm" />
+            <div className="p-3 lg:p-4 border-t bg-card shrink-0 space-y-2 lg:space-y-3">
+              <Input placeholder="Optional notes..." value={notes} onChange={e => setNotes(e.target.value)} className="h-9 lg:h-10 text-sm" />
               <Button className="w-full h-10 lg:h-12 text-sm lg:text-base font-bold bg-blue-600 hover:bg-blue-700 shadow-sm" onClick={handleSubmit} disabled={items.length === 0 || !toBranchId || submitMutation.isPending}>
                 {submitMutation.isPending ? <Loader2 className="w-4 h-4 lg:w-5 lg:h-5 animate-spin" /> : 'Submit Transfer'}
               </Button>
