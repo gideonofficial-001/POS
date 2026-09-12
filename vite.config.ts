@@ -10,11 +10,14 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       strategies: 'generateSW',
+      // ✅ Reference assets that actually exist in /public/
       includeAssets: [
-        'favicon.ico',
-        'apple-touch-icon.png',
-        'mask-icon.svg',
-        'splash-*.png',
+        'android/launchericon-48x48.png',
+        'android/launchericon-72x72.png',
+        'android/launchericon-96x96.png',
+        'android/launchericon-144x144.png',
+        'android/launchericon-192x192.png',
+        'android/launchericon-512x512.png',
       ],
       manifest: {
         name: 'Njugush POS',
@@ -30,15 +33,56 @@ export default defineConfig({
         categories: ['business', 'productivity'],
         lang: 'en',
         dir: 'ltr',
+        // ✅ Paths now match actual files in /public/android/
         icons: [
-          { src: '/icon-72x72.png',   sizes: '72x72',   type: 'image/png', purpose: 'any' },
-          { src: '/icon-96x96.png',   sizes: '96x96',   type: 'image/png', purpose: 'any' },
-          { src: '/icon-128x128.png', sizes: '128x128', type: 'image/png', purpose: 'any' },
-          { src: '/icon-144x144.png', sizes: '144x144', type: 'image/png', purpose: 'any' },
-          { src: '/icon-152x152.png', sizes: '152x152', type: 'image/png', purpose: 'any' },
-          { src: '/icon-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-          { src: '/icon-384x384.png', sizes: '384x384', type: 'image/png', purpose: 'any' },
-          { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+          {
+            src: '/android/launchericon-48x48.png',
+            sizes: '48x48',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/android/launchericon-72x72.png',
+            sizes: '72x72',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/android/launchericon-96x96.png',
+            sizes: '96x96',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/android/launchericon-144x144.png',
+            sizes: '144x144',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/android/launchericon-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',         // Chrome install prompt requires this size
+          },
+          {
+            src: '/android/launchericon-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'maskable',    // Adaptive icon for Android
+          },
+          {
+            src: '/android/launchericon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',         // Chrome install prompt requires this size
+          },
+          {
+            src: '/android/launchericon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',    // Adaptive icon for Android
+          },
         ],
         shortcuts: [
           {
@@ -46,14 +90,14 @@ export default defineConfig({
             short_name: 'Sale',
             description: 'Quickly create a new sale',
             url: '/branch/new-sale',
-            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }],
+            icons: [{ src: '/android/launchericon-192x192.png', sizes: '192x192' }],
           },
           {
             name: 'Inventory',
             short_name: 'Stock',
             description: 'Check inventory levels',
             url: '/branch/inventory',
-            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }],
+            icons: [{ src: '/android/launchericon-192x192.png', sizes: '192x192' }],
           },
         ],
       },
@@ -96,7 +140,6 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // Local dev proxy — remove or adjust if your API runs on a different port
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
