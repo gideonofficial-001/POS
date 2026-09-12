@@ -14,22 +14,23 @@
     <meta name="msapplication-TileColor" content="#0f172a" />
     <meta name="msapplication-tap-highlight" content="no" />
 
-    <!-- Corrected Favicons (Pointing to your /android/ folder) -->
-    <link rel="icon" type="image/png" sizes="48x48" href="/android/launchericon-48x48.png" />
-    <link rel="icon" type="image/png" sizes="72x72" href="/android/launchericon-72x72.png" />
-    <link rel="icon" type="image/png" sizes="96x96" href="/android/launchericon-96x96.png" />
+    <!-- Favicons — using actual existing icon files -->
+    <link rel="icon" type="image/png" sizes="48x48"  href="/android/launchericon-48x48.png" />
+    <link rel="icon" type="image/png" sizes="72x72"  href="/android/launchericon-72x72.png" />
+    <link rel="icon" type="image/png" sizes="96x96"  href="/android/launchericon-96x96.png" />
     <link rel="icon" type="image/png" sizes="144x144" href="/android/launchericon-144x144.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/android/launchericon-192x192.png" />
     <link rel="shortcut icon" href="/android/launchericon-48x48.png" />
 
-    <!-- Apple Touch Icon (iOS Devices use the 192x192 as a fallback) -->
+    <!-- Apple Touch Icons -->
     <link rel="apple-touch-icon" sizes="192x192" href="/android/launchericon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/android/launchericon-144x144.png" />
 
-    <!-- Safari Pinned Tab -->
-    <link rel="mask-icon" href="/mask-icon.svg" color="#f97316" />
+    <!-- iOS splash screens (using existing ios/ folder) -->
+    <link rel="apple-touch-startup-image" href="/ios/512.png" />
 
-    <!-- Manifest -->
-    <link rel="manifest" href="/manifest.json" />
+    <!-- Manifest (vite-plugin-pwa generates and injects this automatically) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
 
     <title>Njugush POS</title>
 
