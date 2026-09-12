@@ -129,7 +129,7 @@ const NewSale = () => {
     }
   }
 
-const buildSaleData = () => ({
+  const buildSaleData = () => ({
     branchId,
     type: saleType,
     customerId: requiresCustomer ? selectedCustomerId : undefined,
@@ -216,14 +216,14 @@ const buildSaleData = () => ({
       <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 flex-1 min-h-0">
         {/* Products */}
         <div className="lg:col-span-2 flex flex-col h-[50vh] lg:h-full bg-muted/10 rounded-xl border overflow-hidden shadow-sm">
-          <div className="p-4 bg-white border-b flex-shrink-0">
+          <div className="p-4 bg-card border-b flex-shrink-0">
             <div className="relative">
               <Search className="absolute left-4 top-4 h-5 w-5 text-muted-foreground" />
               <Input
                 placeholder="Search product name, code, or scan barcode..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-12 h-14 text-lg bg-gray-50/50 border-gray-200 focus-visible:ring-primary shadow-sm"
+                className="pl-12 h-14 text-lg focus-visible:ring-primary shadow-sm"
               />
             </div>
           </div>
@@ -245,7 +245,7 @@ const buildSaleData = () => ({
                   return (
                     <Card
                       key={product.id}
-                      className={`cursor-pointer transition-all hover:border-primary hover:shadow-md bg-white ${isOutOfStock ? 'opacity-50 grayscale' : ''}`}
+                      className={`cursor-pointer transition-all hover:border-primary hover:shadow-md bg-card ${isOutOfStock ? 'opacity-50 grayscale' : ''}`}
                       onClick={() => {
                         if (isLpg) {
                           setSelectedInvItem({ ...inv, emptyCylinders: (inv.quantity || 0) - (inv.fullCylinders || 0) })
@@ -306,25 +306,25 @@ const buildSaleData = () => ({
                 >Invoice</Button>
               </div>
               {/* Cart items */}
-              <div className="flex-1 overflow-y-auto space-y-2 pr-2 border rounded-lg p-2 bg-gray-50/50 min-h-[150px]">
+              <div className="flex-1 overflow-y-auto space-y-2 pr-2 border rounded-lg p-2 bg-muted/20 min-h-[150px]">
                 {items.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-60">
                     <ShoppingCart className="w-12 h-12 mb-2" />
                     <p>Cart is empty</p>
                   </div>
                 ) : items.map((item) => (
-                  <div key={item.productId} className="flex items-center gap-2 p-2 bg-white border rounded-md shadow-sm">
+                  <div key={item.productId} className="flex items-center gap-2 p-2 bg-card border rounded-md shadow-sm">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold truncate leading-tight">{item.product.name}</p>
                       <p className="text-xs text-primary font-bold mt-0.5">{formatCurrency(item.unitPrice)}</p>
                     </div>
                     <div className="flex items-center gap-1 bg-muted/30 rounded-md border p-0.5">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-white"
+                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-muted"
                         onClick={() => updateQuantity(item.productId, item.quantity - 1)}>
                         <Minus className="w-3 h-3" />
                       </Button>
                       <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-white"
+                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-muted"
                         onClick={() => updateQuantity(item.productId, item.quantity + 1)}>
                         <Plus className="w-3 h-3" />
                       </Button>
@@ -337,7 +337,7 @@ const buildSaleData = () => ({
                 ))}
               </div>
               <div className="flex-shrink-0 space-y-3">
-               {/* Optional customer name — cash sales only */}
+                {/* Optional customer name — cash sales only */}
                 {!requiresCustomer && (
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -347,7 +347,7 @@ const buildSaleData = () => ({
                       placeholder="e.g. John Kamau"
                       value={customerName}
                       onChange={(e) => setCustomerName(e.target.value)}
-                      className="h-9 border-gray-200 text-sm"
+                      className="h-9 text-sm"
                     />
                   </div>
                 )}
@@ -360,7 +360,7 @@ const buildSaleData = () => ({
                     <select
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
-                      className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
+                      className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-card focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
                     >
                       <option value="">-- Choose a customer --</option>
                       {customers.map((c: any) => (
@@ -378,7 +378,7 @@ const buildSaleData = () => ({
                     <select
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
-                      className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
+                      className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-card focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
                     >
                       <option value="">-- Choose a customer --</option>
                       {customers.map((c: any) => (
@@ -392,7 +392,7 @@ const buildSaleData = () => ({
                   <Tag className="w-4 h-4 text-muted-foreground" />
                   <Input type="number" placeholder="Apply Discount (KES)" value={discount || ''}
                     onChange={e => setDiscount(Number(e.target.value))}
-                    className="flex-1 h-10 border-gray-200" />
+                    className="flex-1 h-10" />
                 </div>
                 <Separator />
                 {/* Totals */}
