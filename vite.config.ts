@@ -33,6 +33,15 @@ export default defineConfig({
         categories: ['business', 'productivity'],
         lang: 'en',
         dir: 'ltr',
+     screenshots: [
+  {
+    src: '/android/launchericon-512x512.png',
+    sizes: '512x512',
+    type: 'image/png',
+    form_factor: 'narrow',
+    label: 'Njugush POS Home Screen',
+  },
+],
         // ✅ Paths now match actual files in /public/android/
         icons: [
           {
