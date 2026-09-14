@@ -12,15 +12,14 @@ import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
 import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Smartphone, Tag } from 'lucide-react'
-import { MpesaPaymentModal } from './MpesaPaymentModal'
+import { PaymentSplitModal } from './PaymentSplitModal'
 
 const VARIANT_SEPARATOR = '~~'
 
-interface MpesaResult {
-  receiptNumber: string
-  phoneNumber: string
+interface PaymentEntry {
+  method: 'MPESA' | 'CASH'
   amount: number
-  customerName?: string | null
+  mpesaRef?: string
 }
 
 const NewSale = () => {
@@ -41,9 +40,8 @@ const NewSale = () => {
 
   const [lpgModalOpen, setLpgModalOpen] = useState(false)
   const [selectedInvItem, setSelectedInvItem] = useState<any>(null)
-  const [mpesaModalOpen, setMpesaModalOpen] = useState(false)
+  const [splitModalOpen, setSplitModalOpen] = useState(false)
   const [pendingSaleData, setPendingSaleData] = useState<any>(null)
-  const [paymentPickerOpen, setPaymentPickerOpen] = useState(false)
   const [invoiceReceipt, setInvoiceReceipt] = useState<{
     code: string; name: string; phone: string; total: number; itemsStr: string
   } | null>(null)
@@ -101,6 +99,7 @@ const NewSale = () => {
       setCustomerName('')
       setSaleType(SaleType.CASH)
       setDiscountOpenFor(null)
+      setSplitModalOpen(false)
       setPendingSaleData(null)
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
@@ -160,26 +159,14 @@ const NewSale = () => {
       createSaleMutation.mutate(saleData)
     } else {
       setPendingSaleData(saleData)
-      setPaymentPickerOpen(true)
+      setSplitModalOpen(true)
     }
   }
 
-  const handlePayCash = () => {
-    setPaymentPickerOpen(false)
-    if (pendingSaleData) createSaleMutation.mutate({ ...pendingSaleData, paymentProvider: 'CASH' })
-  }
-
-  const handlePayMpesa = () => { setPaymentPickerOpen(false); setMpesaModalOpen(true) }
-
-  const handleMpesaSuccess = (result: MpesaResult) => {
-    setMpesaModalOpen(false)
+  const handlePaymentConfirm = (payments: PaymentEntry[]) => {
+    setSplitModalOpen(false)
     if (pendingSaleData) {
-      createSaleMutation.mutate({
-        ...pendingSaleData,
-        paymentProvider: 'MPESA',
-        mpesaRef: result.receiptNumber,
-        customerName: pendingSaleData.customerName || result.customerName || undefined,
-      })
+      createSaleMutation.mutate({ ...pendingSaleData, payments })
     }
   }
 
@@ -441,27 +428,14 @@ const NewSale = () => {
         </div>
       </div>
 
-      {/* Payment method picker */}
-      <Dialog open={paymentPickerOpen} onOpenChange={setPaymentPickerOpen}>
-        <DialogContent className="sm:max-w-xs">
-          <DialogHeader><DialogTitle>How is the customer paying?</DialogTitle></DialogHeader>
-          <div className="grid gap-3 py-4">
-            <Button className="h-16 justify-start text-left px-4 bg-slate-800 hover:bg-slate-700 text-white" onClick={handlePayCash}>
-              <div className="flex items-center gap-3">
-                <div className="bg-white/20 rounded-full p-2"><Tag className="w-5 h-5" /></div>
-                <div><p className="font-bold">Cash</p><p className="text-xs opacity-80">Record as cash payment</p></div>
-              </div>
-            </Button>
-            <Button className="h-16 justify-start text-left px-4 bg-green-600 hover:bg-green-700 text-white" onClick={handlePayMpesa}>
-              <div className="flex items-center gap-3">
-                <div className="bg-white/20 rounded-full p-2"><Smartphone className="w-5 h-5" /></div>
-                <div><p className="font-bold">M-Pesa</p><p className="text-xs opacity-80">STK push or verify receipt code</p></div>
-              </div>
-            </Button>
-            <Button variant="outline" onClick={() => setPaymentPickerOpen(false)}>Cancel</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Split Payment Modal */}
+      {splitModalOpen && pendingSaleData && (
+        <PaymentSplitModal
+          total={total}
+          onConfirm={handlePaymentConfirm}
+          onClose={() => { setSplitModalOpen(false); setPendingSaleData(null) }}
+        />
+      )}
 
       {/* LPG selection modal */}
       <Dialog open={lpgModalOpen} onOpenChange={setLpgModalOpen}>
@@ -504,9 +478,7 @@ const NewSale = () => {
         </DialogContent>
       </Dialog>
 
-      {mpesaModalOpen && (
-        <MpesaPaymentModal amount={total} onSuccess={handleMpesaSuccess} onClose={() => { setMpesaModalOpen(false); setPendingSaleData(null) }} />
-      )}
+
     </div>
   )
 }
