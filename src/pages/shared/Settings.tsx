@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { UserCircle, Shield, Eye, EyeOff, Check, AlertCircle } from 'lucide-react'
+import { UserCircle, Shield, Eye, EyeOff, Check, AlertCircle, LogOut } from 'lucide-react'
 
 const Settings = () => {
-  const { user, setAuth } = useAuthStore()
+  const { user, token, setAuth, clearAuth } = useAuthStore()
   
   // Profile State
   const [firstName, setFirstName] = useState(user?.firstName || '')
@@ -26,6 +26,7 @@ const Settings = () => {
   const [showCurrent, setShowCurrent] = useState(false)
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [isRevokingSessions, setIsRevokingSessions] = useState(false)
 
   // Password Strength Logic
   const getPasswordStrength = (pass: string) => {
@@ -89,6 +90,23 @@ const Settings = () => {
       toast.error(error.response?.data?.message || 'Failed to update password')
     } finally {
       setIsUpdatingPassword(false)
+    }
+  }
+
+  const handleLogoutOtherSessions = async () => {
+    setIsRevokingSessions(true)
+    try {
+      const res = await api.post('/auth/logout-other-sessions')
+      // Backend returns a fresh token with the new tokenVersion — store it
+      if (res.data.access_token && user) {
+        setAuth(user, res.data.access_token)
+        localStorage.setItem('access_token', res.data.access_token)
+      }
+      toast.success('All other sessions have been logged out.')
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to revoke sessions')
+    } finally {
+      setIsRevokingSessions(false)
     }
   }
 
@@ -209,6 +227,41 @@ const Settings = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Session Management Card */}
+      <Card className="shadow-sm border-destructive/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <LogOut className="w-5 h-5 text-destructive" /> Session Management
+          </CardTitle>
+          <CardDescription>
+            If you suspect your account is being accessed from another device or location, 
+            revoke all other sessions. Your current session will remain active.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-muted/30 rounded-lg border">
+            <div>
+              <p className="font-semibold text-sm">Log out all other sessions</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                All devices except this one will need to log in again.
+                {user?.role !== 'SUPER_ADMIN' && user?.role !== 'OVERALL_MANAGER' && (
+                  <span> Branch staff will need device re-verification.</span>
+                )}
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              className="shrink-0"
+              disabled={isRevokingSessions}
+              onClick={handleLogoutOtherSessions}
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              {isRevokingSessions ? 'Revoking...' : 'Revoke Other Sessions'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
