@@ -219,6 +219,7 @@ export interface SaleItem {
   product: Product
   quantity: number
   unitPrice: number
+  discount: number
   total: number
   lpgVariant?: string
 }
@@ -362,6 +363,7 @@ export interface CartItem {
   product: Product
   quantity: number
   unitPrice: number
+  discount: number
   total: number
 }
 
