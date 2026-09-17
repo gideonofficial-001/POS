@@ -22,7 +22,6 @@ const Inventory = () => {
   )
   const [showLowStock, setShowLowStock] = useState(false)
   const [pageMap, setPageMap] = useState<Record<string, number>>({})
-
   const [pricingMode, setPricingMode] = useState<'RETAIL' | 'WHOLESALE'>('RETAIL')
 
   const [selectedItem, setSelectedItem] = useState<any>(null)
@@ -47,7 +46,6 @@ const Inventory = () => {
     price: 0, emptyPrice: 0, wholesalePrice: 0, wholesaleEmptyPrice: 0, minStockLevel: 10
   })
 
-  // 🚀 SMART DELETE STATE: Tracks local vs global context
   const [deleteTarget, setDeleteTarget] = useState<{ inventoryId: string; productId: string; name: string; isGlobal: boolean } | null>(null)
 
   const { data: branches, isLoading: isLoadingBranches } = useQuery({
@@ -75,11 +73,7 @@ const Inventory = () => {
 
   const adjustStockMutation = useMutation({
     mutationFn: async (data: { id: string; quantity?: number; fullCylinders?: number; reason: string }) =>
-      await inventoryApi.adjustStock(data.id, {
-        quantity: data.quantity,
-        fullCylinders: data.fullCylinders,
-        reason: data.reason
-      }),
+      await inventoryApi.adjustStock(data.id, { quantity: data.quantity, fullCylinders: data.fullCylinders, reason: data.reason }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsAdjustStockOpen(false)
@@ -90,12 +84,7 @@ const Inventory = () => {
 
   const updatePriceMutation = useMutation({
     mutationFn: async (data: any) =>
-      await productsApi.update(data.id, {
-        price: data.price,
-        emptyPrice: data.emptyPrice,
-        wholesalePrice: data.wholesalePrice,
-        wholesaleEmptyPrice: data.wholesaleEmptyPrice
-      }),
+      await productsApi.update(data.id, { price: data.price, emptyPrice: data.emptyPrice, wholesalePrice: data.wholesalePrice, wholesaleEmptyPrice: data.wholesaleEmptyPrice }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsEditPriceOpen(false)
@@ -104,14 +93,12 @@ const Inventory = () => {
     onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to update prices')
   })
 
-  // 🚀 GLOBAL DELETE (When Admin manages their own HQ Branch)
   const deleteProductMutation = useMutation({
     mutationFn: async (productId: string) => await productsApi.delete(productId),
     onSuccess: (response: any) => {
       const result = response?.data
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       setDeleteTarget(null)
-
       if (result?.softDeleted) {
         toast.warning('Product deactivated', { description: result.message, duration: 6000 })
       } else {
@@ -124,7 +111,6 @@ const Inventory = () => {
     }
   })
 
-  // 🚀 LOCAL DELETE (When Admin manages a remote branch)
   const removeLocalInventoryMutation = useMutation({
     mutationFn: async (inventoryId: string) => await inventoryApi.delete(inventoryId),
     onSuccess: () => {
@@ -248,6 +234,7 @@ const Inventory = () => {
         )}
       </div>
 
+      {/* ── Filters bar ── */}
       <div className="flex flex-col lg:flex-row gap-4 justify-between items-center bg-card p-3 rounded-lg border shadow-sm">
         <div className="flex w-full lg:w-auto gap-4">
           <Input placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)} className="w-full lg:w-80" />
@@ -283,18 +270,23 @@ const Inventory = () => {
             const totalPages = Math.ceil(category.items.length / itemsPerPage)
             const paginatedItems = category.items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
 
+            // ── LPG category totals (across ALL items, not just paginated) ──
+            const totalFullCylinders = isLpgConfig
+              ? category.items.reduce((sum: number, item: any) => sum + (item.fullCylinders || 0), 0)
+              : 0
+            const totalEmptyCylinders = isLpgConfig
+              ? category.items.reduce((sum: number, item: any) => sum + Math.max(0, item.emptyCylinders || 0), 0)
+              : 0
+
             return (
               <div key={category.id} className="flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
+
+                {/* Category header */}
                 <div className="bg-muted/30 p-4 border-b flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <h2 className="text-xl font-bold tracking-tight text-primary">
-                      {category.name}
-                    </h2>
-                    <Badge variant="outline" className="bg-background">
-                      {category.items.length} Items
-                    </Badge>
+                    <h2 className="text-xl font-bold tracking-tight text-primary">{category.name}</h2>
+                    <Badge variant="outline" className="bg-background">{category.items.length} Items</Badge>
                   </div>
-
                   {user?.role === UserRole.SUPER_ADMIN && (
                     <Button
                       variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 h-8"
@@ -308,6 +300,7 @@ const Inventory = () => {
                   )}
                 </div>
 
+                {/* Table */}
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -318,7 +311,6 @@ const Inventory = () => {
                             {pricingMode === 'WHOLESALE' ? 'Wholesale Price' : 'Retail Price'}
                           </span>
                         </TableHead>
-
                         {isLpgConfig ? (
                           <>
                             <TableHead className="text-blue-600 font-bold">REFILLS (Full)</TableHead>
@@ -327,7 +319,6 @@ const Inventory = () => {
                         ) : (
                           <TableHead>Quantity</TableHead>
                         )}
-
                         <TableHead className="hidden sm:table-cell">Status</TableHead>
                         {user?.role === UserRole.SUPER_ADMIN && <TableHead className="text-right pr-6">Actions</TableHead>}
                       </TableRow>
@@ -342,7 +333,6 @@ const Inventory = () => {
                       ) : (
                         paginatedItems.map((item: any) => {
                           const isLowStock = item.quantity <= item.minimumQuantity
-
                           const displayPrice = pricingMode === 'WHOLESALE'
                             ? (item.product?.wholesalePrice || item.product?.price)
                             : item.product?.price
@@ -411,15 +401,13 @@ const Inventory = () => {
                                     >
                                       <Settings2 className="w-4 h-4 text-blue-600" />
                                     </Button>
-
-                                    {/* 🚀 SMART DELETE TRIGGER */}
                                     <Button
                                       variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50"
-                                      onClick={() => setDeleteTarget({ 
-                                        inventoryId: item.id, 
-                                        productId: item.product.id, 
+                                      onClick={() => setDeleteTarget({
+                                        inventoryId: item.id,
+                                        productId: item.product.id,
                                         name: item.product.name,
-                                        isGlobal: activeBranchId === user?.branchId 
+                                        isGlobal: activeBranchId === user?.branchId
                                       })}
                                     >
                                       <Trash2 className="w-4 h-4 text-destructive" />
@@ -434,45 +422,61 @@ const Inventory = () => {
                     </TableBody>
                   </Table>
                 </div>
+
+                {/* ── LPG category totals footer ── */}
+                {isLpgConfig && category.items.length > 0 && (
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-t">
+                    <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+                      {category.name} Total
+                    </span>
+                    <div className="flex items-center gap-5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-blue-500 font-semibold">Full:</span>
+                        <span className="text-sm font-black text-blue-600">{totalFullCylinders}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-amber-500 font-semibold">Empty:</span>
+                        <span className="text-sm font-black text-amber-600">{totalEmptyCylinders}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               </div>
             )
           })}
         </div>
       )}
 
-      {/* 🚀 SMART DELETE CONFIRM DIALOG */}
+      {/* Smart Delete Dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="w-5 h-5" /> 
+              <Trash2 className="w-5 h-5" />
               {deleteTarget?.isGlobal ? 'Delete Product Globally' : 'Remove from Branch'}
             </DialogTitle>
           </DialogHeader>
-
           <div className="space-y-4 py-2">
             <p className="font-semibold text-base">"{deleteTarget?.name}"</p>
-
             <div className={`rounded-lg border p-3 text-sm space-y-1.5 ${deleteTarget?.isGlobal ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 text-amber-800 dark:text-amber-200' : 'bg-muted/50 border-muted text-foreground'}`}>
               <p className="font-bold flex items-center gap-1.5">
                 {deleteTarget?.isGlobal ? <Globe className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}
                 {deleteTarget?.isGlobal ? 'Global Action (HQ)' : 'Local Branch Action'}
               </p>
-              
               {deleteTarget?.isGlobal ? (
                 <>
                   <p>Because you are managing your own HQ branch, this will remove the product from <span className="font-semibold">all branches globally</span>.</p>
-                  <p className="mt-1 text-amber-700 text-xs">If this product has any sales history, it will be deactivated instead of permanently deleted to preserve your records.</p>
+                  <p className="mt-1 text-xs opacity-80">If this product has any sales history, it will be deactivated instead of permanently deleted to preserve your records.</p>
                 </>
               ) : (
                 <>
                   <p>This will only remove the product from <span className="font-semibold">{activeBranch?.name}'s</span> inventory. It will remain available for other branches.</p>
-                  <p className="mt-1 text-slate-600 text-xs">If this item has an established sales history at this specific branch, the removal will be blocked to protect your financial audits.</p>
+                  <p className="mt-1 text-xs opacity-70">If this item has an established sales history at this specific branch, the removal will be blocked to protect your financial audits.</p>
                 </>
               )}
             </div>
           </div>
-
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteProductMutation.isPending || removeLocalInventoryMutation.isPending}>
               Cancel
@@ -480,12 +484,9 @@ const Inventory = () => {
             <Button
               variant="destructive"
               onClick={() => {
-                if (!deleteTarget) return;
-                if (deleteTarget.isGlobal) {
-                  deleteProductMutation.mutate(deleteTarget.productId)
-                } else {
-                  removeLocalInventoryMutation.mutate(deleteTarget.inventoryId)
-                }
+                if (!deleteTarget) return
+                if (deleteTarget.isGlobal) deleteProductMutation.mutate(deleteTarget.productId)
+                else removeLocalInventoryMutation.mutate(deleteTarget.inventoryId)
               }}
               disabled={deleteProductMutation.isPending || removeLocalInventoryMutation.isPending}
             >
@@ -554,7 +555,6 @@ const Inventory = () => {
                 </div>
               )}
             </div>
-
             <div className="grid grid-cols-2 gap-4 bg-purple-50/50 p-3 rounded-lg border border-purple-100">
               <div className="space-y-2 col-span-2"><h4 className="text-sm font-bold text-purple-700 uppercase">Wholesale Pricing</h4></div>
               <div className="space-y-2">
@@ -619,7 +619,6 @@ const Inventory = () => {
                 </Select>
               </div>
             </div>
-
             <div className="grid grid-cols-2 gap-4 bg-muted/20 p-3 rounded-lg border">
               <div className="col-span-2"><h4 className="text-sm font-bold text-muted-foreground uppercase">Retail Pricing</h4></div>
               <div className="space-y-2">
@@ -633,7 +632,6 @@ const Inventory = () => {
                 </div>
               )}
             </div>
-
             <div className="grid grid-cols-2 gap-4 bg-purple-50/50 p-3 rounded-lg border border-purple-100">
               <div className="col-span-2"><h4 className="text-sm font-bold text-purple-700 uppercase">Wholesale Pricing</h4></div>
               <div className="space-y-2">
