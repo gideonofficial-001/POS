@@ -33,15 +33,6 @@ export default defineConfig({
         categories: ['business', 'productivity'],
         lang: 'en',
         dir: 'ltr',
-     screenshots: [
-  {
-    src: '/android/launchericon-512x512.png',
-    sizes: '512x512',
-    type: 'image/png',
-    form_factor: 'narrow',
-    label: 'Njugush POS Home Screen',
-  },
-],
         // ✅ Paths now match actual files in /public/android/
         icons: [
           {
@@ -158,7 +149,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    minify: 'esbuild',   // terser uses WASM and breaks in Termux; esbuild is built into Vite
+    sourcemap: false,    // skip source maps on mobile builds — saves ~3MB
     rollupOptions: {
       output: {
         manualChunks: {
