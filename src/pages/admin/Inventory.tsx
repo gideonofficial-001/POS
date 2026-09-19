@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react'
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { inventoryApi, branchesApi, productsApi } from '@/api'
 import { useAuthStore } from '@/store'
@@ -8,10 +10,31 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PackageSearch, AlertTriangle, Store, ArrowLeft, Plus, Trash2, Settings2, DollarSign, Globe, MapPin } from 'lucide-react'
+import { PackageSearch, AlertTriangle, Store, ArrowLeft, Plus, Trash2, Settings2, DollarSign, Globe, MapPin, Pin } from 'lucide-react'
 import { toast } from 'sonner'
+
+// ── LOCAL ZUSTAND STORE FOR CATEGORY PINNING ─────────────────────────────────
+interface InventoryPrefs {
+  pinnedCategories: string[]
+  togglePin: (id: string) => void
+}
+
+const useInventoryPrefs = create<InventoryPrefs>()(
+  persist(
+    (set) => ({
+      pinnedCategories: [],
+      togglePin: (id) => set((state) => ({
+        pinnedCategories: state.pinnedCategories.includes(id)
+          ? state.pinnedCategories.filter(c => c !== id)
+          : [...state.pinnedCategories, id]
+      }))
+    }),
+    { name: 'njugush-inventory-prefs' }
+  )
+)
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Inventory = () => {
   const { user } = useAuthStore()
@@ -23,6 +46,8 @@ const Inventory = () => {
   const [showLowStock, setShowLowStock] = useState(false)
   const [pageMap, setPageMap] = useState<Record<string, number>>({})
   const [pricingMode, setPricingMode] = useState<'RETAIL' | 'WHOLESALE'>('RETAIL')
+
+  const { pinnedCategories, togglePin } = useInventoryPrefs()
 
   const [selectedItem, setSelectedItem] = useState<any>(null)
   const [isAdjustStockOpen, setIsAdjustStockOpen] = useState(false)
@@ -156,9 +181,10 @@ const Inventory = () => {
     onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to create product')
   })
 
-  const categoriesWithItems = useMemo(() => {
+  // 🚀 The Magic Filter: Auto-Hides Empty Categories & Sorts by Pinned status
+  const displayCategories = useMemo(() => {
     if (!categories) return []
-    return categories.map((cat: any) => {
+    const mapped = categories.map((cat: any) => {
       let items = inventory?.filter((inv: any) => inv.product?.categoryId === cat.id) || []
       if (search) {
         const term = search.toLowerCase()
@@ -169,7 +195,17 @@ const Inventory = () => {
       }
       return { ...cat, items }
     })
-  }, [categories, inventory, search])
+
+    return mapped
+      .filter((cat: any) => cat.items.length > 0) // Hide empty categories
+      .sort((a: any, b: any) => { // Sort: Pinned first, then alphabetical
+        const aPinned = pinnedCategories.includes(a.id)
+        const bPinned = pinnedCategories.includes(b.id)
+        if (aPinned && !bPinned) return -1
+        if (!aPinned && bPinned) return 1
+        return a.name.localeCompare(b.name)
+      })
+  }, [categories, inventory, search, pinnedCategories])
 
   const isSelectedLpg = selectedItem?.product?.category?.name.toUpperCase().includes('LPG')
 
@@ -263,188 +299,206 @@ const Inventory = () => {
         <Card><CardContent className="p-12 text-center text-muted-foreground">Loading inventory...</CardContent></Card>
       ) : (
         <div className="space-y-10">
-          {categoriesWithItems.map((category: any) => {
-            const isLpgConfig = category.name.toUpperCase().includes('LPG')
-            const currentPage = pageMap[category.id] || 1
-            const itemsPerPage = 10
-            const totalPages = Math.ceil(category.items.length / itemsPerPage)
-            const paginatedItems = category.items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+          {displayCategories.length === 0 ? (
+            <div className="text-center py-20 text-muted-foreground border rounded-xl bg-card">
+              <PackageSearch className="w-12 h-12 mx-auto mb-4 opacity-30" />
+              <p>No inventory found.</p>
+            </div>
+          ) : (
+            displayCategories.map((category: any) => {
+              const isLpgConfig = category.name.toUpperCase().includes('LPG')
+              const currentPage = pageMap[category.id] || 1
+              const itemsPerPage = 10
+              const paginatedItems = category.items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
 
-            // ── LPG category totals (across ALL items, not just paginated) ──
-            const totalFullCylinders = isLpgConfig
-              ? category.items.reduce((sum: number, item: any) => sum + (item.fullCylinders || 0), 0)
-              : 0
-            const totalEmptyCylinders = isLpgConfig
-              ? category.items.reduce((sum: number, item: any) => sum + Math.max(0, item.emptyCylinders || 0), 0)
-              : 0
+              const totalFullCylinders = isLpgConfig
+                ? category.items.reduce((sum: number, item: any) => sum + (item.fullCylinders || 0), 0)
+                : 0
+              const totalEmptyCylinders = isLpgConfig
+                ? category.items.reduce((sum: number, item: any) => sum + Math.max(0, item.emptyCylinders || 0), 0)
+                : 0
 
-            return (
-              <div key={category.id} className="flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
+              const isPinned = pinnedCategories.includes(category.id)
 
-                {/* Category header */}
-                <div className="bg-muted/30 p-4 border-b flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-xl font-bold tracking-tight text-primary">{category.name}</h2>
-                    <Badge variant="outline" className="bg-background">{category.items.length} Items</Badge>
+              return (
+                <div key={category.id} className={`flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden ${isPinned ? 'ring-2 ring-primary/20' : ''}`}>
+
+                  {/* Category header */}
+                  <div className="bg-muted/30 p-4 border-b flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-xl font-bold tracking-tight text-primary">{category.name}</h2>
+                      <Badge variant="outline" className="bg-background">{category.items.length} Items</Badge>
+                      
+                      {/* 🚀 The Pin Button */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-8 w-8 ml-2 rounded-full transition-colors ${isPinned ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                        onClick={() => togglePin(category.id)}
+                        title={isPinned ? "Unpin Category" : "Pin to Top"}
+                      >
+                        <Pin className={`w-4 h-4 ${isPinned ? 'fill-current' : ''}`} />
+                      </Button>
+                    </div>
+                    {user?.role === UserRole.SUPER_ADMIN && (
+                      <Button
+                        variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 h-8"
+                        onClick={() => {
+                          if (confirm(`Delete the "${category.name}" category?\n\nProducts inside will be unlinked but not deleted.`))
+                            deleteCategoryMutation.mutate(category.id)
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" /> Delete
+                      </Button>
+                    )}
                   </div>
-                  {user?.role === UserRole.SUPER_ADMIN && (
-                    <Button
-                      variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 h-8"
-                      onClick={() => {
-                        if (confirm(`Delete the "${category.name}" category?\n\nProducts inside will be unlinked but not deleted.`))
-                          deleteCategoryMutation.mutate(category.id)
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" /> Delete
-                    </Button>
-                  )}
-                </div>
 
-                {/* Table */}
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/10 hover:bg-muted/10">
-                        <TableHead className="w-[35%]">Product Name</TableHead>
-                        <TableHead>
-                          <span className={pricingMode === 'WHOLESALE' ? 'text-purple-600 font-bold' : ''}>
-                            {pricingMode === 'WHOLESALE' ? 'Wholesale Price' : 'Retail Price'}
-                          </span>
-                        </TableHead>
-                        {isLpgConfig ? (
-                          <>
-                            <TableHead className="text-blue-600 font-bold">REFILLS (Full)</TableHead>
-                            <TableHead className="text-amber-600 font-bold">CYLINDERS (Empty)</TableHead>
-                          </>
-                        ) : (
-                          <TableHead>Quantity</TableHead>
-                        )}
-                        <TableHead className="hidden sm:table-cell">Status</TableHead>
-                        {user?.role === UserRole.SUPER_ADMIN && <TableHead className="text-right pr-6">Actions</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {paginatedItems.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={isLpgConfig ? 6 : 5} className="text-center h-24 text-muted-foreground">
-                            No products available.
-                          </TableCell>
+                  {/* Table */}
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/10 hover:bg-muted/10">
+                          <TableHead className="w-[35%]">Product Name</TableHead>
+                          <TableHead>
+                            <span className={pricingMode === 'WHOLESALE' ? 'text-purple-600 font-bold' : ''}>
+                              {pricingMode === 'WHOLESALE' ? 'Wholesale Price' : 'Retail Price'}
+                            </span>
+                          </TableHead>
+                          {isLpgConfig ? (
+                            <>
+                              <TableHead className="text-blue-600 font-bold">REFILLS (Full)</TableHead>
+                              <TableHead className="text-amber-600 font-bold">CYLINDERS (Empty)</TableHead>
+                            </>
+                          ) : (
+                            <TableHead>Quantity</TableHead>
+                          )}
+                          <TableHead className="hidden sm:table-cell">Status</TableHead>
+                          {user?.role === UserRole.SUPER_ADMIN && <TableHead className="text-right pr-6">Actions</TableHead>}
                         </TableRow>
-                      ) : (
-                        paginatedItems.map((item: any) => {
-                          const isLowStock = item.quantity <= item.minimumQuantity
-                          const displayPrice = pricingMode === 'WHOLESALE'
-                            ? (item.product?.wholesalePrice || item.product?.price)
-                            : item.product?.price
-                          const displayEmptyPrice = pricingMode === 'WHOLESALE'
-                            ? (item.product?.wholesaleEmptyPrice || item.product?.emptyPrice)
-                            : item.product?.emptyPrice
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedItems.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={isLpgConfig ? 6 : 5} className="text-center h-24 text-muted-foreground">
+                              No products available.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          paginatedItems.map((item: any) => {
+                            const isLowStock = item.quantity <= item.minimumQuantity
+                            const displayPrice = pricingMode === 'WHOLESALE'
+                              ? (item.product?.wholesalePrice || item.product?.price)
+                              : item.product?.price
+                            const displayEmptyPrice = pricingMode === 'WHOLESALE'
+                              ? (item.product?.wholesaleEmptyPrice || item.product?.emptyPrice)
+                              : item.product?.emptyPrice
 
-                          return (
-                            <TableRow key={item.id} className="group">
-                              <TableCell className="font-medium">
-                                {item.product?.name}
-                                {item.product?.code && <span className="block text-xs text-muted-foreground font-normal mt-0.5">{item.product.code}</span>}
-                              </TableCell>
-
-                              <TableCell className={`font-medium ${pricingMode === 'WHOLESALE' ? 'text-purple-700' : 'text-muted-foreground'}`}>
-                                {Number(displayPrice).toLocaleString()}
-                                {isLpgConfig && displayEmptyPrice != null && (
-                                  <span className="block text-xs text-amber-600 mt-0.5">
-                                    Empty: {Number(displayEmptyPrice).toLocaleString()}
-                                  </span>
-                                )}
-                              </TableCell>
-
-                              {isLpgConfig ? (
-                                <>
-                                  <TableCell className="text-lg font-bold text-blue-600">{item.fullCylinders || 0}</TableCell>
-                                  <TableCell className={`text-lg font-bold ${item.emptyCylinders < 0 ? 'text-destructive bg-destructive/10 px-2 py-1 rounded' : 'text-amber-600'}`}>
-                                    {Math.max(0, item.emptyCylinders || 0)}
-                                  </TableCell>
-                                </>
-                              ) : (
-                                <TableCell className={`text-lg font-bold ${isLowStock ? 'text-destructive' : ''}`}>{item.quantity}</TableCell>
-                              )}
-
-                              <TableCell className="hidden sm:table-cell">
-                                {isLowStock
-                                  ? <Badge variant="destructive" className="shadow-sm">Low ({item.minimumQuantity} min)</Badge>
-                                  : <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-none">OK</Badge>}
-                              </TableCell>
-
-                              {user?.role === UserRole.SUPER_ADMIN && (
-                                <TableCell className="text-right pr-4">
-                                  <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Button
-                                      variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50"
-                                      onClick={() => {
-                                        setSelectedItem(item)
-                                        setEditPrice(Number(item.product.price))
-                                        setEditEmptyPrice(Number(item.product.emptyPrice || 0))
-                                        setEditWholesalePrice(Number(item.product.wholesalePrice || item.product.price))
-                                        setEditWholesaleEmptyPrice(Number(item.product.wholesaleEmptyPrice || item.product.emptyPrice || 0))
-                                        setIsEditPriceOpen(true)
-                                      }}
-                                    >
-                                      <DollarSign className="w-4 h-4 text-green-600" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50"
-                                      onClick={() => {
-                                        setSelectedItem(item)
-                                        setAdjustQuantity(item.quantity)
-                                        setAdjustFull(item.fullCylinders || 0)
-                                        setAdjustReason('')
-                                        setIsAdjustStockOpen(true)
-                                      }}
-                                    >
-                                      <Settings2 className="w-4 h-4 text-blue-600" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50"
-                                      onClick={() => setDeleteTarget({
-                                        inventoryId: item.id,
-                                        productId: item.product.id,
-                                        name: item.product.name,
-                                        isGlobal: activeBranchId === user?.branchId
-                                      })}
-                                    >
-                                      <Trash2 className="w-4 h-4 text-destructive" />
-                                    </Button>
-                                  </div>
+                            return (
+                              <TableRow key={item.id} className="group">
+                                <TableCell className="font-medium">
+                                  {item.product?.name}
+                                  {item.product?.code && <span className="block text-xs text-muted-foreground font-normal mt-0.5">{item.product.code}</span>}
                                 </TableCell>
-                              )}
-                            </TableRow>
-                          )
-                        })
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
 
-                {/* ── LPG category totals footer ── */}
-                {isLpgConfig && category.items.length > 0 && (
-                  <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-t">
-                    <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-                      {category.name} Total
-                    </span>
-                    <div className="flex items-center gap-5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-blue-500 font-semibold">Full:</span>
-                        <span className="text-sm font-black text-blue-600">{totalFullCylinders}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-amber-500 font-semibold">Empty:</span>
-                        <span className="text-sm font-black text-amber-600">{totalEmptyCylinders}</span>
+                                <TableCell className={`font-medium ${pricingMode === 'WHOLESALE' ? 'text-purple-700' : 'text-muted-foreground'}`}>
+                                  {Number(displayPrice).toLocaleString()}
+                                  {isLpgConfig && displayEmptyPrice != null && (
+                                    <span className="block text-xs text-amber-600 mt-0.5">
+                                      Empty: {Number(displayEmptyPrice).toLocaleString()}
+                                    </span>
+                                  )}
+                                </TableCell>
+
+                                {isLpgConfig ? (
+                                  <>
+                                    <TableCell className="text-lg font-bold text-blue-600">{item.fullCylinders || 0}</TableCell>
+                                    <TableCell className={`text-lg font-bold ${item.emptyCylinders < 0 ? 'text-destructive bg-destructive/10 px-2 py-1 rounded' : 'text-amber-600'}`}>
+                                      {Math.max(0, item.emptyCylinders || 0)}
+                                    </TableCell>
+                                  </>
+                                ) : (
+                                  <TableCell className={`text-lg font-bold ${isLowStock ? 'text-destructive' : ''}`}>{item.quantity}</TableCell>
+                                )}
+
+                                <TableCell className="hidden sm:table-cell">
+                                  {isLowStock
+                                    ? <Badge variant="destructive" className="shadow-sm">Low ({item.minimumQuantity} min)</Badge>
+                                    : <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-none">OK</Badge>}
+                                </TableCell>
+
+                                {user?.role === UserRole.SUPER_ADMIN && (
+                                  <TableCell className="text-right pr-4">
+                                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Button
+                                        variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50"
+                                        onClick={() => {
+                                          setSelectedItem(item)
+                                          setEditPrice(Number(item.product.price))
+                                          setEditEmptyPrice(Number(item.product.emptyPrice || 0))
+                                          setEditWholesalePrice(Number(item.product.wholesalePrice || item.product.price))
+                                          setEditWholesaleEmptyPrice(Number(item.product.wholesaleEmptyPrice || item.product.emptyPrice || 0))
+                                          setIsEditPriceOpen(true)
+                                        }}
+                                      >
+                                        <DollarSign className="w-4 h-4 text-green-600" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50"
+                                        onClick={() => {
+                                          setSelectedItem(item)
+                                          setAdjustQuantity(item.quantity)
+                                          setAdjustFull(item.fullCylinders || 0)
+                                          setAdjustReason('')
+                                          setIsAdjustStockOpen(true)
+                                        }}
+                                      >
+                                        <Settings2 className="w-4 h-4 text-blue-600" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50"
+                                        onClick={() => setDeleteTarget({
+                                          inventoryId: item.id,
+                                          productId: item.product.id,
+                                          name: item.product.name,
+                                          isGlobal: activeBranchId === user?.branchId
+                                        })}
+                                      >
+                                        <Trash2 className="w-4 h-4 text-destructive" />
+                                      </Button>
+                                    </div>
+                                  </TableCell>
+                                )}
+                              </TableRow>
+                            )
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* ── LPG category totals footer ── */}
+                  {isLpgConfig && category.items.length > 0 && (
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-t">
+                      <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+                        {category.name} Total
+                      </span>
+                      <div className="flex items-center gap-5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-blue-500 font-semibold">Full:</span>
+                          <span className="text-sm font-black text-blue-600">{totalFullCylinders}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-amber-500 font-semibold">Empty:</span>
+                          <span className="text-sm font-black text-amber-600">{totalEmptyCylinders}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-              </div>
-            )
-          })}
+                </div>
+              )
+            })
+          )}
         </div>
       )}
 
