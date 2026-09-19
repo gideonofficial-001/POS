@@ -10,6 +10,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       strategies: 'generateSW',
+      minify: false,   // workbox bundles its own terser which breaks in Termux — esbuild handles minification instead
       // ✅ Reference assets that actually exist in /public/
       includeAssets: [
         'android/launchericon-48x48.png',
