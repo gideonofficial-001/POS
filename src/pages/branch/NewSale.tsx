@@ -11,16 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
-import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Smartphone, Tag } from 'lucide-react'
-import { PaymentSplitModal } from './PaymentSplitModal'
+import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag } from 'lucide-react'
+import { CheckoutTerminal } from './CheckoutTerminal'
 
 const VARIANT_SEPARATOR = '~~'
-
-interface PaymentEntry {
-  method: 'MPESA' | 'CASH'
-  amount: number
-  mpesaRef?: string
-}
 
 const NewSale = () => {
   const { user } = useAuthStore()
@@ -35,16 +29,12 @@ const NewSale = () => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
   const [customerName, setCustomerName] = useState('')
 
-  // Tracks which cart item has its discount input open
   const [discountOpenFor, setDiscountOpenFor] = useState<string | null>(null)
-
   const [lpgModalOpen, setLpgModalOpen] = useState(false)
   const [selectedInvItem, setSelectedInvItem] = useState<any>(null)
-  const [splitModalOpen, setSplitModalOpen] = useState(false)
-  const [pendingSaleData, setPendingSaleData] = useState<any>(null)
-  const [invoiceReceipt, setInvoiceReceipt] = useState<{
-    code: string; name: string; phone: string; total: number; itemsStr: string
-  } | null>(null)
+  
+  const [pendingSaleId, setPendingSaleId] = useState<string | null>(null)
+  const [invoiceReceipt, setInvoiceReceipt] = useState<any>(null)
 
   const requiresCustomer = saleType === SaleType.INVOICE || saleType === SaleType.WHOLESALE
   const branchId = user?.branchId || ''
@@ -70,44 +60,33 @@ const NewSale = () => {
     },
   })
 
-  const createSaleMutation = useMutation({
-    mutationFn: (data: any) => salesApi.create(data),
+  // 🚀 ARCHITECTURE FIX: This mutation now strictly creates a PENDING sale.
+  const createPendingSaleMutation = useMutation({
+    mutationFn: (data: any) => salesApi.create({ ...data, status: 'PENDING' }),
     onSuccess: (response, variables) => {
       if (variables.type === SaleType.INVOICE) {
         const customer = customers.find((c: any) => c.id === variables.customerId)
-        const itemsListStr = items.map(item => {
-          const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
-          const label = lpgVariant === 'REFILL' ? ' (Refill)' : lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
-          return `${item.quantity}x ${item.product.name}${label}`
-        }).join('\n- ')
         setInvoiceReceipt({
           code: response.data.saleCode,
           name: customer?.name || 'Customer',
-          phone: customer?.phone || '',
           total: getTotal(),
-          itemsStr: itemsListStr,
         })
+        handleReset()
       } else {
-        const parts = [`Sale completed! Code: ${response.data.saleCode}`]
-        if (variables.mpesaRef) parts.push(`M-Pesa: ${variables.mpesaRef}`)
-        if (variables.customerName) parts.push(`Customer: ${variables.customerName}`)
-        toast.success(parts.join(' · '))
+        // Proceed to Checkout Terminal for Payment
+        setPendingSaleId(response.data.id)
       }
-      clearCart()
-      setSearch('')
-      setSelectedCustomerId('')
-      setCustomerName('')
-      setSaleType(SaleType.CASH)
-      setDiscountOpenFor(null)
-      setSplitModalOpen(false)
-      setPendingSaleData(null)
-      queryClient.invalidateQueries({ queryKey: ['sales'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
-      queryClient.invalidateQueries({ queryKey: ['inventory'] })
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
     },
-    onError: (error: any) => toast.error(error.response?.data?.message || 'Failed to create sale'),
+    onError: (error: any) => toast.error(error.response?.data?.message || 'Failed to initialize sale'),
+  })
+
+  // Cancels the sale if the user exits the terminal without paying
+  const cancelSaleMutation = useMutation({
+    mutationFn: (id: string) => salesApi.cancel(id),
+    onSuccess: () => {
+      setPendingSaleId(null)
+      toast.info('Sale cancelled')
+    }
   })
 
   const filteredInventory = inventory?.filter((inv: any) => {
@@ -115,86 +94,49 @@ const NewSale = () => {
     const isLpg = inv.product.type === 'LPG_REFILL' || inv.product.type === 'LPG_CYLINDER'
     const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity
     if (availableStock === 0) return false
-    if (saleType === SaleType.WHOLESALE) {
-      if (Number(inv.product.wholesalePrice || 0) === 0) return false
-    }
+    if (saleType === SaleType.WHOLESALE && Number(inv.product.wholesalePrice || 0) === 0) return false
     if (search.trim() === '') return true
-    return (
-      inv.product.name.toLowerCase().includes(search.toLowerCase()) ||
-      inv.product.code.toLowerCase().includes(search.toLowerCase())
-    )
+    return inv.product.name.toLowerCase().includes(search.toLowerCase()) || inv.product.code.toLowerCase().includes(search.toLowerCase())
   }) || []
 
-  const handleTypeSwitch = (newType: SaleType) => {
-    if (items.length > 0 && newType !== saleType) {
-      if (window.confirm('Changing the sale type will clear your current cart. Do you want to proceed?')) {
-        clearCart(); setSaleType(newType); setDiscountOpenFor(null)
-      }
-    } else {
-      setSaleType(newType)
-    }
+  const handleReset = () => {
+    clearCart()
+    setSearch('')
+    setSelectedCustomerId('')
+    setCustomerName('')
+    setSaleType(SaleType.CASH)
+    setPendingSaleId(null)
+    queryClient.invalidateQueries({ queryKey: ['sales'] })
+    queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+    queryClient.invalidateQueries({ queryKey: ['inventory'] })
   }
 
-  const buildSaleData = () => ({
-    branchId,
-    type: saleType,
-    customerId: requiresCustomer ? selectedCustomerId : undefined,
-    customerName: !requiresCustomer && customerName.trim() ? customerName.trim() : undefined,
-    items: items.map(item => {
-      const [productId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
-      return {
-        productId,
-        quantity: item.quantity,
-        discount: item.discount,
-        ...(lpgVariant ? { lpgVariant } : {}),
-      }
-    }),
-  })
-
-  const handleCheckout = () => {
+  const handleInitializeCheckout = () => {
     if (items.length === 0) return toast.error('Cart is empty')
     if (requiresCustomer && !selectedCustomerId) return toast.error('Please select a customer for this sale')
-    const saleData = buildSaleData()
-    if (saleType === SaleType.INVOICE) {
-      createSaleMutation.mutate(saleData)
-    } else {
-      setPendingSaleData(saleData)
-      setSplitModalOpen(true)
-    }
-  }
-
-  const handlePaymentConfirm = (payments: PaymentEntry[]) => {
-    setSplitModalOpen(false)
-    if (pendingSaleData) {
-      createSaleMutation.mutate({ ...pendingSaleData, payments })
-    }
+    
+    createPendingSaleMutation.mutate({
+      branchId,
+      type: saleType,
+      customerId: requiresCustomer ? selectedCustomerId : undefined,
+      customerName: !requiresCustomer && customerName.trim() ? customerName.trim() : undefined,
+      items: items.map(item => {
+        const [productId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
+        return { productId, quantity: item.quantity, discount: item.discount, ...(lpgVariant ? { lpgVariant } : {}) }
+      }),
+    })
   }
 
   const handleLpgSelect = (type: 'REFILL' | 'EMPTY_SHELL' | 'COMPLETE_SET') => {
     if (!selectedInvItem) return
     const p = selectedInvItem.product
     const baseGasPrice = saleType === SaleType.WHOLESALE ? Number(p.wholesalePrice || p.price) : Number(p.price)
-    const rawEmptyPrice = saleType === SaleType.WHOLESALE ? (p.wholesaleEmptyPrice || p.emptyPrice) : p.emptyPrice
-    const emptyPrice = rawEmptyPrice != null ? Number(rawEmptyPrice) : null
+    const emptyPrice = saleType === SaleType.WHOLESALE ? Number(p.wholesaleEmptyPrice || p.emptyPrice || 0) : Number(p.emptyPrice || 0)
 
-    if (type === 'REFILL') {
-      if (selectedInvItem.fullCylinders > 0) {
-        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}REFILL`, name: `${p.name} (Refill)`, price: baseGasPrice }, 1)
-        toast.success(`Added ${p.name} Refill`)
-      } else toast.error('No full cylinders in stock!')
-    } else if (type === 'EMPTY_SHELL') {
-      if (emptyPrice == null) toast.error('Empty shell price is not set for this product')
-      else if (selectedInvItem.emptyCylinders > 0) {
-        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}EMPTY_SHELL`, name: `${p.name} (Empty Shell)`, price: emptyPrice }, 1)
-        toast.success(`Added ${p.name} Empty Shell`)
-      } else toast.error('No empty shells in stock!')
-    } else if (type === 'COMPLETE_SET') {
-      if (emptyPrice == null) toast.error('Empty shell price is not set for this product')
-      else if (selectedInvItem.fullCylinders > 0) {
-        addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}COMPLETE_SET`, name: `${p.name} (Complete Set)`, price: baseGasPrice + emptyPrice }, 1)
-        toast.success(`Added ${p.name} Complete Set`)
-      } else toast.error('No full cylinders in stock to make a complete set!')
-    }
+    if (type === 'REFILL') addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}REFILL`, name: `${p.name} (Refill)`, price: baseGasPrice }, 1)
+    else if (type === 'EMPTY_SHELL') addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}EMPTY_SHELL`, name: `${p.name} (Empty Shell)`, price: emptyPrice }, 1)
+    else addItem({ ...p, id: `${p.id}${VARIANT_SEPARATOR}COMPLETE_SET`, name: `${p.name} (Complete Set)`, price: baseGasPrice + emptyPrice }, 1)
+    
     setLpgModalOpen(false)
     setSearch('')
   }
@@ -211,14 +153,12 @@ const NewSale = () => {
       </div>
 
       <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 flex-1 min-h-0">
-
-        {/* ── PRODUCTS GRID ── */}
         <div className="lg:col-span-2 flex flex-col h-[50vh] lg:h-full bg-muted/10 rounded-xl border overflow-hidden shadow-sm">
           <div className="p-4 bg-card border-b flex-shrink-0">
             <div className="relative">
               <Search className="absolute left-4 top-4 h-5 w-5 text-muted-foreground" />
               <Input
-                placeholder="Search product name, code, or scan barcode..."
+                placeholder="Search product name, code..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-12 h-14 text-lg focus-visible:ring-primary shadow-sm"
@@ -229,7 +169,7 @@ const NewSale = () => {
             {filteredInventory.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground">
                 <Package className="w-12 h-12 mb-4 opacity-30" />
-                <p>No products found {search.trim() !== '' && `matching "${search}"`}</p>
+                <p>No products found</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -237,8 +177,7 @@ const NewSale = () => {
                   const product = inv.product
                   const isLpg = product.type === 'LPG_REFILL' || product.type === 'LPG_CYLINDER'
                   const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity
-                  const displayPrice = saleType === SaleType.WHOLESALE
-                    ? (product.wholesalePrice || product.price) : product.price
+                  const displayPrice = saleType === SaleType.WHOLESALE ? (product.wholesalePrice || product.price) : product.price
                   return (
                     <Card
                       key={product.id}
@@ -286,15 +225,12 @@ const NewSale = () => {
             </CardHeader>
 
             <CardContent className="flex-1 flex flex-col min-h-[300px] overflow-hidden space-y-4">
-
-              {/* Sale type tabs */}
               <div className="flex gap-2 flex-shrink-0 bg-muted/30 p-1 rounded-lg">
                 <Button variant={saleType === SaleType.CASH ? 'default' : 'ghost'} className="flex-1" onClick={() => handleTypeSwitch(SaleType.CASH)}>Retail</Button>
                 <Button variant={saleType === SaleType.WHOLESALE ? 'default' : 'ghost'} className={`flex-1 ${saleType === SaleType.WHOLESALE ? 'bg-purple-600 hover:bg-purple-700 text-white' : ''}`} onClick={() => handleTypeSwitch(SaleType.WHOLESALE)}>Wholesale</Button>
                 <Button variant={saleType === SaleType.INVOICE ? 'default' : 'ghost'} className={`flex-1 ${saleType === SaleType.INVOICE ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}`} onClick={() => handleTypeSwitch(SaleType.INVOICE)}>Invoice</Button>
               </div>
 
-              {/* Cart items */}
               <div className="flex-1 overflow-y-auto space-y-2 pr-1 border rounded-lg p-2 bg-muted/20 min-h-[150px]">
                 {items.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-60">
@@ -303,19 +239,13 @@ const NewSale = () => {
                   </div>
                 ) : items.map((item) => (
                   <div key={item.productId} className="bg-card border rounded-md shadow-sm overflow-hidden">
-                    {/* Main row */}
                     <div className="flex items-center gap-2 p-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate leading-tight">{item.product.name}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <p className="text-xs text-primary font-bold">{formatCurrency(item.unitPrice)}</p>
-                          {item.discount > 0 && (
-                            <span className="text-[10px] text-emerald-600 font-semibold">-{formatCurrency(item.discount)}</span>
-                          )}
                         </div>
                       </div>
-
-                      {/* Qty controls */}
                       <div className="flex items-center gap-1 bg-muted/30 rounded-md border p-0.5">
                         <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-muted" onClick={() => updateQuantity(item.productId, item.quantity - 1)}>
                           <Minus className="w-3 h-3" />
@@ -325,61 +255,24 @@ const NewSale = () => {
                           <Plus className="w-3 h-3" />
                         </Button>
                       </div>
-
-                      {/* Discount toggle */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={`h-7 w-7 rounded-sm shrink-0 ${item.discount > 0 ? 'text-emerald-600 bg-emerald-50' : 'text-muted-foreground hover:bg-muted'}`}
-                        title="Apply discount to this item"
-                        onClick={() => setDiscountOpenFor(discountOpenFor === item.productId ? null : item.productId)}
-                      >
-                        <Tag className="w-3.5 h-3.5" />
-                      </Button>
-
-                      {/* Delete */}
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10 shrink-0" onClick={() => removeItem(item.productId)}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-
-                    {/* Inline discount input — only shown when toggled */}
-                    {discountOpenFor === item.productId && (
-                      <div className="px-2 pb-2 pt-0 flex items-center gap-2 bg-emerald-50/50 border-t border-emerald-100">
-                        <Tag className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="text-xs text-emerald-700 font-medium">Disc KES</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={item.unitPrice * item.quantity}
-                          placeholder="0"
-                          value={item.discount || ''}
-                          onChange={(e) => updateItemDiscount(item.productId, Number(e.target.value))}
-                          className="h-7 text-sm w-28 border-emerald-300 focus-visible:ring-emerald-400"
-                          autoFocus
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          → {formatCurrency(item.unitPrice * item.quantity - item.discount)}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
 
               <div className="flex-shrink-0 space-y-3">
-                {/* Customer name — cash/retail only */}
                 {!requiresCustomer && (
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Customer Name (optional)</Label>
                     <Input placeholder="e.g. John Kamau" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="h-9 text-sm" />
                   </div>
                 )}
-
-                {/* Customer select — invoice & wholesale */}
                 {requiresCustomer && (
-                  <div className="space-y-1.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <Label className="text-xs font-bold text-amber-900 uppercase tracking-wider">Select Customer (Required)</Label>
+                  <div className="space-y-1.5 p-3 bg-amber-50 border border-amber-200 rounded-lg dark:bg-amber-900/20 dark:border-amber-900/50">
+                    <Label className="text-xs font-bold text-amber-900 dark:text-amber-500 uppercase tracking-wider">Select Customer (Required)</Label>
                     <select
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
@@ -392,21 +285,12 @@ const NewSale = () => {
                     </select>
                   </div>
                 )}
-
                 <Separator />
-
-                {/* Totals */}
                 <div className="space-y-1.5 text-sm bg-slate-900 text-white p-4 rounded-xl shadow-inner">
                   <div className="flex justify-between text-slate-300">
                     <span>Subtotal</span>
                     <span>{formatCurrency(subtotal)}</span>
                   </div>
-                  {totalDiscount > 0 && (
-                    <div className="flex justify-between text-emerald-400 font-medium">
-                      <span>Discounts</span>
-                      <span>- {formatCurrency(totalDiscount)}</span>
-                    </div>
-                  )}
                   <div className="flex justify-between text-xl font-black text-white pt-2 mt-2 border-t border-slate-700">
                     <span>Total</span>
                     <span>{formatCurrency(total)}</span>
@@ -418,22 +302,22 @@ const NewSale = () => {
             <CardFooter className="pt-2 flex-shrink-0">
               <Button
                 className={`w-full text-lg font-bold h-14 shadow-lg ${saleType === SaleType.WHOLESALE ? 'bg-purple-600 hover:bg-purple-700' : ''}`}
-                disabled={items.length === 0 || createSaleMutation.isPending || (requiresCustomer && !selectedCustomerId)}
-                onClick={handleCheckout}
+                disabled={items.length === 0 || createPendingSaleMutation.isPending || (requiresCustomer && !selectedCustomerId)}
+                onClick={handleInitializeCheckout}
               >
-                {createSaleMutation.isPending ? 'Processing...' : `Charge ${formatCurrency(total)}`}
+                {createPendingSaleMutation.isPending ? 'Processing...' : `Charge ${formatCurrency(total)}`}
               </Button>
             </CardFooter>
           </Card>
         </div>
       </div>
 
-      {/* Split Payment Modal */}
-      {splitModalOpen && pendingSaleData && (
-        <PaymentSplitModal
+      {pendingSaleId && (
+        <CheckoutTerminal
+          saleId={pendingSaleId}
           total={total}
-          onConfirm={handlePaymentConfirm}
-          onClose={() => { setSplitModalOpen(false); setPendingSaleData(null) }}
+          onSuccess={() => { toast.success('Sale Completed Successfully!'); handleReset(); }}
+          onCancel={() => { cancelSaleMutation.mutate(pendingSaleId) }}
         />
       )}
 
@@ -444,41 +328,19 @@ const NewSale = () => {
           <div className="grid gap-3 py-4">
             <Button variant="outline" className={`h-16 justify-start text-left px-4 ${selectedInvItem?.fullCylinders === 0 ? 'opacity-50' : 'hover:border-blue-400'}`} onClick={() => handleLpgSelect('REFILL')} disabled={selectedInvItem?.fullCylinders === 0}>
               <Flame className="w-5 h-5 mr-3 text-blue-500" />
-              <div className="flex-1"><div className="flex justify-between w-full"><p className="font-bold">Gas Refill Only</p><span className="text-xs font-medium text-blue-600">{selectedInvItem?.fullCylinders} left</span></div><p className="text-xs text-muted-foreground">Customer returns empty shell</p></div>
+              <div className="flex-1"><div className="flex justify-between w-full"><p className="font-bold">Gas Refill Only</p></div><p className="text-xs text-muted-foreground">Customer returns empty shell</p></div>
             </Button>
-            <Button variant="outline" className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`} onClick={() => handleLpgSelect('EMPTY_SHELL')} disabled={selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null}>
+            <Button variant="outline" className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0) ? 'opacity-50' : 'hover:border-amber-400'}`} onClick={() => handleLpgSelect('EMPTY_SHELL')} disabled={selectedInvItem?.emptyCylinders <= 0}>
               <Package className="w-5 h-5 mr-3 text-amber-600" />
-              <div className="flex-1"><div className="flex justify-between w-full"><p className="font-bold">Empty Cylinder</p><span className="text-xs font-medium text-amber-600">{Math.max(0, selectedInvItem?.emptyCylinders || 0)} left</span></div><p className="text-xs text-muted-foreground">{saleType === SaleType.WHOLESALE ? (selectedInvItem?.product?.wholesaleEmptyPrice ? formatCurrency(selectedInvItem.product.wholesaleEmptyPrice) : 'price not set') : (selectedInvItem?.product?.emptyPrice != null ? formatCurrency(selectedInvItem.product.emptyPrice) : 'price not set')}</p></div>
+              <div className="flex-1"><div className="flex justify-between w-full"><p className="font-bold">Empty Cylinder</p></div></div>
             </Button>
-            <Button className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : ''}`} onClick={() => handleLpgSelect('COMPLETE_SET')} disabled={selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null}>
+            <Button className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.fullCylinders === 0) ? 'opacity-50' : ''}`} onClick={() => handleLpgSelect('COMPLETE_SET')} disabled={selectedInvItem?.fullCylinders === 0}>
               <Flame className="w-5 h-5 mr-3" />
-              <div className="flex-1"><p className="font-bold">Complete Set (Gas + Shell)</p><p className="text-xs opacity-90">{saleType === SaleType.WHOLESALE ? formatCurrency(Number(selectedInvItem?.product?.wholesalePrice || 0) + Number(selectedInvItem?.product?.wholesaleEmptyPrice || 0)) : formatCurrency(Number(selectedInvItem?.product?.price || 0) + Number(selectedInvItem?.product?.emptyPrice || 0))}</p></div>
+              <div className="flex-1"><p className="font-bold">Complete Set (Gas + Shell)</p></div>
             </Button>
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Invoice receipt modal */}
-      <Dialog open={!!invoiceReceipt} onOpenChange={() => setInvoiceReceipt(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle className="text-amber-600 flex items-center gap-2"><Package className="w-5 h-5" /> Invoice Generated Successfully</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">The invoice has been saved. Copy the message below to send to the customer.</p>
-            <textarea readOnly className="w-full h-48 p-3 bg-muted rounded-md text-sm border focus:outline-none resize-none"
-              value={`Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nItems:\n- ${invoiceReceipt?.itemsStr}\n\nPlease arrange payment. Thank you!`}
-            />
-            <Button className="w-full bg-green-600 hover:bg-green-700 text-white"
-              onClick={() => {
-                const msg = `Hello ${invoiceReceipt?.name},\n\nAn invoice (${invoiceReceipt?.code}) for KES ${invoiceReceipt?.total.toLocaleString()} has been generated for your recent purchase at Njugush POS.\n\nItems:\n- ${invoiceReceipt?.itemsStr}\n\nPlease arrange payment. Thank you!`
-                navigator.clipboard.writeText(msg)
-                toast.success('Message copied to clipboard!')
-              }}>Copy WhatsApp Message</Button>
-            <Button variant="outline" className="w-full" onClick={() => setInvoiceReceipt(null)}>Close</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-
     </div>
   )
 }
