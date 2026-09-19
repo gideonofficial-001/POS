@@ -21,62 +21,36 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const message = error.response?.data?.message || error.message || 'An error occurred'
-    
-    // 🚀 THE FIX: Prevent the hard redirect if the user is already on the login page!
     if (error.response?.status === 401 && window.location.pathname !== '/login') {
       useAuthStore.getState().clearAuth()
       window.location.href = '/login'
     }
-    
     return Promise.reject({ ...error, message })
   },
 )
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
 export const authApi = {
-  login: (
-    email: string,
-    password: string,
-    deviceFingerprint: string,
-    extra?: {
-      latitude?: number
-      longitude?: number
-      accuracy?: number
-      deviceType?: string
-      userAgent?: string
-    },
-  ) => api.post('/auth/login', { email, password, deviceFingerprint, ...extra }),
-
-  requestDeviceCode: (
-    email: string,
-    deviceFingerprint: string,
-    location?: { latitude?: number; longitude?: number },
-  ) => api.post('/auth/device/request', { email, deviceFingerprint, ...location }),
-
+  login: (email: string, password: string, deviceFingerprint: string, extra?: any) => 
+    api.post('/auth/login', { email, password, deviceFingerprint, ...extra }),
+  requestDeviceCode: (email: string, deviceFingerprint: string, location?: any) => 
+    api.post('/auth/device/request', { email, deviceFingerprint, ...location }),
   verifyDeviceCode: (requestId: string, authorizationCode: string) =>
     api.post('/auth/device/verify', { requestId, authorizationCode }),
-
   logout: () => api.post('/auth/logout'),
 }
 
-// ── Users ─────────────────────────────────────────────────────────────────────
 export const usersApi = {
   getAll: () => api.get('/users'),
   getById: (id: string) => api.get(`/users/${id}`),
   create: (data: any) => api.post('/users', data),
   update: (id: string, data: any) => api.patch(`/users/${id}`, data),
-  delete: (id: string, confirmationText: string) =>
-    api.delete(`/users/${id}?confirmation=${encodeURIComponent(confirmationText)}`),
+  delete: (id: string, confirmationText: string) => api.delete(`/users/${id}?confirmation=${encodeURIComponent(confirmationText)}`),
   getStats: () => api.get('/users/stats'),
-  getLoginHistory: (userId: string, days = 30) =>
-    api.get(`/users/${userId}/login-history`, { params: { days } }),
-  getSuspiciousLogins: (days = 7) =>
-    api.get('/users/login-activity/suspicious', { params: { days } }),
-  getAllLoginActivity: (days = 7, userId?: string) =>
-    api.get('/users/login-activity/all', { params: { days, userId } }),
+  getLoginHistory: (userId: string, days = 30) => api.get(`/users/${userId}/login-history`, { params: { days } }),
+  getSuspiciousLogins: (days = 7) => api.get('/users/login-activity/suspicious', { params: { days } }),
+  getAllLoginActivity: (days = 7, userId?: string) => api.get('/users/login-activity/all', { params: { days, userId } }),
 }
 
-// ── Branches ──────────────────────────────────────────────────────────────────
 export const branchesApi = {
   getAll: () => api.get('/branches'),
   getById: (id: string) => api.get(`/branches/${id}`),
@@ -84,11 +58,9 @@ export const branchesApi = {
   update: (id: string, data: any) => api.patch(`/branches/${id}`, data),
   toggleStatus: (id: string) => api.patch(`/branches/${id}/toggle-status`),
   getInventory: (id: string) => api.get(`/branches/${id}/inventory`),
-  getSales: (id: string, startDate?: string, endDate?: string) =>
-    api.get(`/branches/${id}/sales`, { params: { startDate, endDate } }),
+  getSales: (id: string, startDate?: string, endDate?: string) => api.get(`/branches/${id}/sales`, { params: { startDate, endDate } }),
 }
 
-// ── Products ──────────────────────────────────────────────────────────────────
 export const productsApi = {
   getAll: (params?: any) => api.get('/products', { params }),
   getById: (id: string) => api.get(`/products/${id}`),
@@ -97,32 +69,20 @@ export const productsApi = {
   delete: (id: string) => api.delete(`/products/${id}`),
   toggleStatus: (id: string) => api.patch(`/products/${id}/toggle`),
   getCategories: () => api.get('/products/categories'),
-  createCategory: (name: string, description?: string) =>
-    api.post('/products/categories', { name, description }),
+  createCategory: (name: string, description?: string) => api.post('/products/categories', { name, description }),
   deleteCategory: (id: string) => api.delete(`/products/categories/${id}`),
 }
 
-// ── Inventory ─────────────────────────────────────────────────────────────────
 export const inventoryApi = {
   getAll: (params?: any) => api.get('/inventory', { params }),
   getById: (id: string) => api.get(`/inventory/${id}`),
-  restock: (id: string, quantity: number) =>
-    api.post(`/inventory/${id}/restock`, { quantity }),
-  adjustStock: (
-    id: string,
-    payload: {
-      quantity?: number
-      fullCylinders?: number
-      emptyCylinders?: number
-      reason: string
-    },
-  ) => api.post(`/inventory/${id}/adjust`, payload),
+  restock: (id: string, quantity: number) => api.post(`/inventory/${id}/restock`, { quantity }),
+  adjustStock: (id: string, payload: any) => api.post(`/inventory/${id}/adjust`, payload),
   getLowStock: () => api.get('/inventory/low-stock'),
   getMovements: (params?: any) => api.get('/inventory/movements', { params }),
   delete: (id: string) => api.delete(`/inventory/${id}`),
 }
 
-// ── Customers ─────────────────────────────────────────────────────────────────
 export const customersApi = {
   getAll: (params?: any) => api.get('/customers', { params }),
   getById: (id: string) => api.get(`/customers/${id}`),
@@ -133,64 +93,55 @@ export const customersApi = {
   delete: (id: string) => api.delete(`/customers/${id}`), 
 }
 
-// ── Sales ─────────────────────────────────────────────────────────────────────
 export const salesApi = {
   getAll: (params?: any) => api.get('/sales', { params }),
   getById: (id: string) => api.get(`/sales/${id}`),
   getByCode: (code: string) => api.get(`/sales/code/${code}`),
   create: (data: any) => api.post('/sales', data),
-  getWeekly: (year?: number, week?: number) =>
-    api.get('/sales/weekly', { params: { year, week } }),
+  getWeekly: (year?: number, week?: number) => api.get('/sales/weekly', { params: { year, week } }),
+  // 🚀 ARCHITECTURE FIX: New endpoints to finalize the pending sale
+  complete: (id: string, method: string) => api.patch(`/sales/${id}/complete`, { method }),
+  recordManualReceipt: (id: string, receiptCode: string) => api.patch(`/sales/${id}/manual-payment`, { receiptCode }),
+  cancel: (id: string) => api.patch(`/sales/${id}/cancel`),
 }
 
-// ── Invoices ──────────────────────────────────────────────────────────────────
 export const invoicesApi = {
   getAll: (params?: any) => api.get('/invoices', { params }),
   getById: (id: string) => api.get(`/invoices/${id}`),
   create: (data: any) => api.post('/invoices', data),
-  updateStatus: (id: string, status: string) =>
-    api.patch(`/invoices/${id}/status`, { status }),
+  updateStatus: (id: string, status: string) => api.patch(`/invoices/${id}/status`, { status }),
   getSummary: () => api.get('/invoices/summary'),
   getOverdue: () => api.get('/invoices/overdue'),
   cancel: (id: string) => api.patch(`/invoices/${id}/cancel`),
 }
 
-// ── Returns ───────────────────────────────────────────────────────────────────
 export const returnsApi = {
   getAll: (params?: any) => api.get('/returns', { params }),
   getById: (id: string) => api.get(`/returns/${id}`),
   create: (data: any) => api.post('/returns', data),
   approve: (id: string) => api.patch(`/returns/${id}/approve`),
-  reject: (id: string, rejectionReason: string) =>
-    api.patch(`/returns/${id}/reject`, { rejectionReason }),
+  reject: (id: string, rejectionReason: string) => api.patch(`/returns/${id}/reject`, { rejectionReason }),
 }
 
-// ── Expenses ──────────────────────────────────────────────────────────────────
 export const expensesApi = {
   getAll: (params?: any) => api.get('/expenses', { params }),
   getById: (id: string) => api.get(`/expenses/${id}`),
   create: (data: any) => api.post('/expenses', data),
   approve: (id: string) => api.patch(`/expenses/${id}/approve`),
-  reject: (id: string, rejectionReason: string) =>
-    api.patch(`/expenses/${id}/reject`, { rejectionReason }),
+  reject: (id: string, rejectionReason: string) => api.patch(`/expenses/${id}/reject`, { rejectionReason }),
 }
 
-// ── Transfers ─────────────────────────────────────────────────────────────────
 export const transfersApi = {
   getAll: (params?: any) => api.get('/transfers', { params }),
   getById: (id: string) => api.get(`/transfers/${id}`),
   create: (data: any) => api.post('/transfers', data),
-  approveItem: (id: string, itemId: string) =>
-    api.patch(`/transfers/${id}/items/${itemId}/approve`),
-  rejectItem: (id: string, itemId: string, rejectionReason: string) =>
-    api.patch(`/transfers/${id}/items/${itemId}/reject`, { rejectionReason }),
+  approveItem: (id: string, itemId: string) => api.patch(`/transfers/${id}/items/${itemId}/approve`),
+  rejectItem: (id: string, itemId: string, rejectionReason: string) => api.patch(`/transfers/${id}/items/${itemId}/reject`, { rejectionReason }),
   approve: (id: string) => api.patch(`/transfers/${id}/approve`),
-  reject: (id: string, rejectionReason: string) =>
-    api.patch(`/transfers/${id}/reject`, { rejectionReason }),
+  reject: (id: string, rejectionReason: string) => api.patch(`/transfers/${id}/reject`, { rejectionReason }),
   cancel: (id: string) => api.patch(`/transfers/${id}/cancel`),
 }
 
-// ── Devices ───────────────────────────────────────────────────────────────────
 export const devicesApi = {
   getPending: () => api.get('/devices/pending'),
   getAll: () => api.get('/devices'),
@@ -198,7 +149,6 @@ export const devicesApi = {
   revoke: (id: string) => api.patch(`/devices/${id}/revoke`),
 }
 
-// ── Notifications ─────────────────────────────────────────────────────────────
 export const notificationsApi = {
   getAll: () => api.get('/notifications'),
   getUnreadCount: () => api.get('/notifications/unread-count'),
@@ -208,35 +158,29 @@ export const notificationsApi = {
   delete: (id: string) => api.delete(`/notifications/${id}`),
 }
 
-// ── Audit Logs ────────────────────────────────────────────────────────────────
 export const auditLogsApi = {
   getAll: (params?: any) => api.get('/audit-logs', { params }),
   getStats: () => api.get('/audit-logs/stats'),
 }
 
-// ── Reports ───────────────────────────────────────────────────────────────────
 export const reportsApi = {
   getDashboardStats: () => api.get('/reports/dashboard'),
-  getSalesTrend: (days?: number) =>
-    api.get('/reports/sales-trend', { params: { days } }),
+  getSalesTrend: (days?: number) => api.get('/reports/sales-trend', { params: { days } }),
   getBranchPerformance: () => api.get('/reports/branch-performance'),
   getProductPerformance: () => api.get('/reports/product-performance'),
-  getExpenseReport: (startDate?: string, endDate?: string) =>
-    api.get('/reports/expenses', { params: { startDate, endDate } }),
+  getExpenseReport: (startDate?: string, endDate?: string) => api.get('/reports/expenses', { params: { startDate, endDate } }),
   getInventoryValuation: () => api.get('/reports/inventory-valuation'),
 }
 
-// ── Activity Feed ─────────────────────────────────────────────────────────────
 export const activityFeedApi = {
   getAll: () => api.get('/activity-feed'),
-  getRecent: (limit?: number) =>
-    api.get('/activity-feed/recent', { params: { limit } }),
+  getRecent: (limit?: number) => api.get('/activity-feed/recent', { params: { limit } }),
 }
 
-// ── M-Pesa ────────────────────────────────────────────────────────────────────
 export const mpesaApi = {
-  stkPush: (phoneNumber: string, amount: number, saleId?: string, invoiceId?: string) =>
-    api.post('/mpesa/stkpush', { phoneNumber, amount, saleId, invoiceId }),
+  // 🚀 ARCHITECTURE FIX: Frontend can no longer declare the payment amount
+  stkPush: (phoneNumber: string, saleId?: string, invoiceId?: string) =>
+    api.post('/mpesa/stkpush', { phoneNumber, saleId, invoiceId }),
   getStatus: (checkoutRequestId: string) =>
     api.get(`/mpesa/status/${checkoutRequestId}`),
 }
