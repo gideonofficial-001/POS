@@ -11,7 +11,6 @@ interface PaymentEntry {
   method: 'MPESA' | 'CASH'
   amount: number
   mpesaRef?: string
-  unverified?: boolean
 }
 
 interface Props {
@@ -164,10 +163,9 @@ export function PaymentSplitModal({ total, onConfirm, onClose }: Props) {
   const handleConfirm = () => {
     const payments: PaymentEntry[] = []
     if (mpesaAmt > 0) payments.push({
-      method:     'MPESA',
-      amount:     mpesaAmt,
-      mpesaRef:   mpesaRef || undefined,
-      unverified: verifyStatus === 'unverified',
+      method:   'MPESA',
+      amount:   mpesaAmt,
+      mpesaRef: mpesaRef || undefined,
     })
     if (cashAmt > 0) payments.push({ method: 'CASH', amount: cashAmt })
     onConfirm(payments)
