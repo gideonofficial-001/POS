@@ -239,6 +239,8 @@ export const mpesaApi = {
     api.post('/mpesa/stkpush', { phoneNumber, amount, saleId, invoiceId }),
   getStatus: (checkoutRequestId: string) =>
     api.get(`/mpesa/status/${checkoutRequestId}`),
+  verifyManualReceipt: (receiptNumber: string, amount: number) =>
+    api.post('/mpesa/verify-manual', { receiptNumber, amount }),
 }
 
 export default api
