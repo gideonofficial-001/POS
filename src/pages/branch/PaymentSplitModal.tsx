@@ -56,6 +56,15 @@ export function PaymentSplitModal({ total, onConfirm, onClose }: Props) {
   const canConfirm     = !needsMpesa || mpesaConfirmed || verifyStatus === 'verified' || verifyStatus === 'unverified'
   const isManualFlow   = verifyStatus !== 'idle'
 
+  // ── Computed outside JSX to avoid TS control-flow narrowing errors ────────
+  const confirmDisabled = !canConfirm || verifyStatus === 'duplicate'
+  const confirmLabel =
+    needsMpesa && !mpesaConfirmed && verifyStatus === 'idle'
+      ? 'Awaiting M-Pesa…'
+      : verifyStatus === 'unverified'
+        ? 'Proceed (Unverified)'
+        : `Confirm ${formatCurrency(total)}`
+
   // ── Phone normalization ───────────────────────────────────────────────────
   const formatPhone = (raw: string): string | null => {
     const digits = raw.replace(/\D/g, '')
@@ -361,18 +370,14 @@ export function PaymentSplitModal({ total, onConfirm, onClose }: Props) {
                         />
                         <button
                           onClick={handleManualVerify}
-                          disabled={verifyStatus === 'verifying'}
                           style={{
-                            backgroundColor: verifyStatus === 'verifying' ? '#9ca3af' : '#374151',
-                            color: '#ffffff', border: 'none', borderRadius: '6px',
+                            backgroundColor: '#374151', color: '#ffffff',
+                            border: 'none', borderRadius: '6px',
                             padding: '0 14px', fontSize: '13px', fontWeight: 600,
-                            cursor: verifyStatus === 'verifying' ? 'not-allowed' : 'pointer',
-                            whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px',
+                            cursor: 'pointer', whiteSpace: 'nowrap',
                           }}
                         >
-                          {verifyStatus === 'verifying'
-                            ? <><Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} /> Checking</>
-                            : 'Verify'}
+                          Verify
                         </button>
                       </div>
                     </div>
@@ -390,18 +395,14 @@ export function PaymentSplitModal({ total, onConfirm, onClose }: Props) {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!canConfirm || verifyStatus === 'duplicate'}
+            disabled={confirmDisabled}
             style={{
               flex: 1, height: '40px', borderRadius: '8px', fontSize: '14px', fontWeight: 700,
-              cursor: (canConfirm && verifyStatus !== 'duplicate') ? 'pointer' : 'not-allowed',
-              ...((canConfirm && verifyStatus !== 'duplicate') ? s.btnConfirm : s.btnWaiting),
+              cursor: confirmDisabled ? 'not-allowed' : 'pointer',
+              ...(confirmDisabled ? s.btnWaiting : s.btnConfirm),
             }}
           >
-            {needsMpesa && !mpesaConfirmed && !isManualFlow
-              ? 'Awaiting M-Pesa…'
-              : verifyStatus === 'unverified'
-                ? `Proceed (Unverified)`
-                : `Confirm ${formatCurrency(total)}`}
+            {confirmLabel}
           </button>
         </div>
       </DialogContent>
