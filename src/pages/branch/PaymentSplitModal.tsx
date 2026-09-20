@@ -365,7 +365,6 @@ export function PaymentSplitModal({ total, onConfirm, onClose }: Props) {
                           placeholder="e.g. RCK1AB23DE"
                           value={mpesaReceiptInput}
                           onChange={(e) => setMpesaReceiptInput(e.target.value.toUpperCase())}
-                          disabled={verifyStatus === 'verifying'}
                           style={{ ...s.inputStyle, fontFamily: 'monospace', letterSpacing: '0.1em', textTransform: 'uppercase' }}
                         />
                         <button
