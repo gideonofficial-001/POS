@@ -41,6 +41,7 @@ import TransfersPage from '@/pages/branch/TransfersPage'
 import Notifications from '@/pages/shared/Notifications'
 import Settings from '@/pages/shared/Settings'
 import NotFound from '@/pages/NotFound'
+import Closingstock from '@/pages/shared/Closingstock'
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: UserRole[] }) => {
