@@ -4,7 +4,7 @@ import { useThemeStore } from '@/store/theme'
 import { UserRole } from '@/types'
 import { Logo } from '@/components/Logo'
 import {
-  LayoutDashboard, Users, Building2, PackageSearch, UsersRound,
+  LayoutDashboard, Users, Building2, PackageSearch, PackageCheck, UsersRound,
   ShoppingCart, FileText, RotateCcw, History, BarChart3,
   ClipboardList, Settings, LogOut, Bell, ArrowLeftRight,
   Receipt, ChevronLeft, ChevronRight, X, Menu, Smartphone,
@@ -35,6 +35,7 @@ const Sidebar = () => {
         { path: '/admin/users', icon: Users, label: 'Users' },
         { path: '/admin/branches', icon: Building2, label: 'Branches' },
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
+        { path: '/closing-stock', icon: PackageCheck, label: 'Closing Stock' },
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
         { path: '/admin/sales-history', icon: History, label: 'Sales History' },
@@ -52,6 +53,7 @@ const Sidebar = () => {
       items.push(
         { path: '/manager/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
+        { path: '/closing-stock', icon: PackageCheck, label: 'Closing Stock' },
         { path: '/customers', icon: UsersRound, label: 'Customers' },
         { path: '/admin/invoices', icon: FileText, label: 'Invoices' },
         { path: '/admin/sales-history', icon: History, label: 'Sales History' },
@@ -66,6 +68,7 @@ const Sidebar = () => {
       items.push(
         { path: '/branch/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { path: '/inventory', icon: PackageSearch, label: 'Inventory' },
+        { path: '/closing-stock', icon: PackageCheck, label: 'Closing Stock' },
         { path: '/branch/new-sale', icon: ShoppingCart, label: 'New Sale' },
         { path: '/branch/invoices', icon: FileText, label: 'Invoices' },
         { path: '/branch/sales-history', icon: History, label: 'Sales History' },
