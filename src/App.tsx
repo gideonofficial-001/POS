@@ -144,6 +144,7 @@ function App() {
           <Route path="/admin/transfers" element={<ProtectedRoute allowedRoles={[UserRole.SUPER_ADMIN]}><TransfersPage /></ProtectedRoute>} />
 
           {/* Shared Routes */}
+          <Route path="/closing-stock" element={<ProtectedRoute><Closingstock /></ProtectedRoute>} />
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         </Route>
