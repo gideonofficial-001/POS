@@ -244,8 +244,6 @@ export const mpesaApi = {
 }
 
 export const closingStockApi = {
-  recordSnapshot: (branchId: string, date?: string) =>
-    api.post('/closing-stock/snapshot', { branchId, date }),
   getDates: (branchId: string, startDate: string, endDate: string) =>
     api.get('/closing-stock/dates', { params: { branchId, startDate, endDate } }),
   getSnapshot: (branchId: string, date: string) =>
