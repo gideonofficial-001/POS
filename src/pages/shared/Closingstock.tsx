@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { closingStockApi, branchesApi } from '@/api'
 import { useAuthStore } from '@/store'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ArrowLeft, ArrowRight, Camera, CheckCircle2, ChevronRight, Clock, Printer, Store, XCircle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, Clock, Printer, Store, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export default function ClosingStock() {
   })
 
   // ── Fetch dates that have snapshots in current window ─────────────────
-  const { data: snapshotDates = [], refetch: refetchDates } = useQuery({
+  const { data: snapshotDates = [] } = useQuery({
     queryKey: ['closing-stock-dates', selectedBranchId, startDate, endDate],
     queryFn:  () => closingStockApi.getDates(selectedBranchId, startDate, endDate).then(r => r.data),
     enabled:  !!selectedBranchId,
@@ -76,16 +76,6 @@ export default function ClosingStock() {
     queryKey: ['closing-stock-snapshot', selectedBranchId, selectedDate],
     queryFn:  () => closingStockApi.getSnapshot(selectedBranchId, selectedDate!).then(r => r.data),
     enabled:  !!selectedBranchId && !!selectedDate,
-  })
-
-  // ── Record snapshot mutation ──────────────────────────────────────────
-  const recordMutation = useMutation({
-    mutationFn: (date: string) => closingStockApi.recordSnapshot(selectedBranchId, date),
-    onSuccess: (_, date) => {
-      toast.success(`Closing stock recorded for ${fmtShort(new Date(date))}`)
-      refetchDates()
-    },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to record closing stock'),
   })
 
   // ── Navigation ────────────────────────────────────────────────────────
@@ -135,7 +125,7 @@ export default function ClosingStock() {
     }).join('')
 
     win.document.write(`<!DOCTYPE html><html><head>
-      <title>Closing Stock — ${fmtShort(new Date(snapshot.date))}</title>
+      <title>Midnight Closing Stock — ${fmtShort(new Date(snapshot.date))}</title>
       <style>
         body{font-family:Arial,sans-serif;padding:20px;max-width:900px;margin:auto;font-size:12px}
         h1{text-align:center;margin:0;font-size:18px;text-transform:uppercase}
@@ -155,11 +145,11 @@ export default function ClosingStock() {
       </style>
     </head><body>
       <h1>NJUGUSH ENTERPRISES</h1>
-      <h2>Closing Stock Report — ${snapshot.branchName}</h2>
-      <div class="meta">Business Date: <strong>${fmt(new Date(snapshot.date))}</strong> &nbsp;|&nbsp; Recorded: ${new Date(snapshot.recordedAt).toLocaleString('en-GB')} &nbsp;|&nbsp; ${snapshot.totalProducts} products</div>
+      <h2>Midnight Closing Stock Report — ${snapshot.branchName}</h2>
+      <div class="meta">Business Date: <strong>${fmt(new Date(snapshot.date))}</strong> &nbsp;|&nbsp; Captured at Midnight: ${new Date(snapshot.recordedAt).toLocaleString('en-GB')} &nbsp;|&nbsp; ${snapshot.totalProducts} products</div>
       ${categorySections}
       <div style="text-align:center;margin-top:24px;font-size:10px;color:#999;border-top:1px dashed #ccc;padding-top:12px">
-        Printed ${new Date().toLocaleString('en-GB')}
+        Printed ${new Date().toLocaleString('en-GB')} &nbsp;·&nbsp; Automated Snapshot
       </div>
       <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script>
     </body></html>`)
@@ -172,7 +162,7 @@ export default function ClosingStock() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Closing Stock</h1>
-          <p className="text-muted-foreground">End-of-day inventory records</p>
+          <p className="text-muted-foreground">Automated midnight inventory records</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {branches?.map((b: any) => (
@@ -211,7 +201,11 @@ export default function ClosingStock() {
             )}
             <h1 className="text-2xl font-bold">Closing Stock</h1>
           </div>
-          {activeBranch && <p className="text-muted-foreground ml-7">{activeBranch.name}</p>}
+          {activeBranch && (
+            <p className="text-muted-foreground ml-7">
+              {activeBranch.name} &bull; Midnight Inventory Snapshots
+            </p>
+          )}
         </div>
 
         {/* Branch switcher for admin */}
@@ -226,6 +220,15 @@ export default function ClosingStock() {
             </SelectContent>
           </Select>
         )}
+      </div>
+
+      {/* ── Midnight Automation Info Banner ── */}
+      <div className="flex items-start sm:items-center gap-3 p-3.5 bg-muted/40 border border-border/80 rounded-xl text-xs text-muted-foreground">
+        <Clock className="w-4 h-4 text-primary shrink-0 mt-0.5 sm:mt-0" />
+        <div>
+          <span className="font-semibold text-foreground">Automatic Midnight Capture: </span>
+          The system captures inventory automatically every night at <strong>00:00 (Midnight)</strong>. Any transfers, sales, or stock adjustments completed past midnight are not included in that day&apos;s closing stock.
+        </div>
       </div>
 
       {/* ── Controls: navigation + jump ── */}
@@ -285,43 +288,49 @@ export default function ClosingStock() {
                     {day.toLocaleDateString('en-GB', { weekday: 'long' })}
                   </TableCell>
                   <TableCell className="text-center">
-                    {snap
-                      ? <Badge className="bg-emerald-100 text-emerald-700 border-none gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Recorded
-                        </Badge>
-                      : <Badge variant="outline" className="text-muted-foreground gap-1">
-                          <XCircle className="w-3 h-3" /> No Record
-                        </Badge>}
+                    {snap ? (
+                      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-none gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Captured
+                      </Badge>
+                    ) : isToday ? (
+                      <Badge variant="outline" className="text-blue-600 border-blue-300 bg-blue-50/50 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800 gap-1 text-xs">
+                        <Clock className="w-3 h-3" /> Captures at Midnight
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground gap-1">
+                        <XCircle className="w-3 h-3" /> No Record
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden md:table-cell">
                     {snap ? `${snap.productCount} products` : '—'}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground hidden lg:table-cell">
-                    {snap
-                      ? <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {new Date(snap.recordedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      : '—'}
+                    {snap ? (
+                      <span className="flex items-center gap-1 font-mono">
+                        <Clock className="w-3 h-3" />
+                        {new Date(snap.recordedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    ) : isToday ? (
+                      <span className="text-muted-foreground italic">Scheduled at 00:00</span>
+                    ) : (
+                      '—'
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2" onClick={e => e.stopPropagation()}>
-                      {snap && (
-                        <Button variant="ghost" size="sm" className="text-xs"
-                          onClick={() => setSelectedDate(isoDay)}>
+                      {snap ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs hover:bg-primary/10 hover:text-primary"
+                          onClick={() => setSelectedDate(isoDay)}
+                        >
                           View <ChevronRight className="w-3 h-3 ml-1" />
                         </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground pr-2">—</span>
                       )}
-                      <Button
-                        size="sm"
-                        variant={snap ? 'outline' : 'default'}
-                        className="text-xs"
-                        disabled={recordMutation.isPending}
-                        onClick={() => recordMutation.mutate(isoDay)}
-                      >
-                        <Camera className="w-3 h-3 mr-1" />
-                        {snap ? 'Re-record' : 'Record Now'}
-                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -337,7 +346,7 @@ export default function ClosingStock() {
           <DialogHeader>
             <div className="flex items-center justify-between">
               <DialogTitle>
-                Closing Stock — {selectedDate ? fmtShort(new Date(selectedDate)) : ''}
+                Midnight Closing Stock — {selectedDate ? fmtShort(new Date(selectedDate)) : ''}
               </DialogTitle>
               <Button
                 className="bg-emerald-600 hover:bg-emerald-700 text-white mr-6"
@@ -350,7 +359,7 @@ export default function ClosingStock() {
             </div>
             {snapshot && (
               <p className="text-sm text-muted-foreground mt-1">
-                {snapshot.branchName} &nbsp;·&nbsp; Recorded at {new Date(snapshot.recordedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} &nbsp;·&nbsp; {snapshot.totalProducts} products
+                {snapshot.branchName} &nbsp;·&nbsp; Captured at midnight ({new Date(snapshot.recordedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}) &nbsp;·&nbsp; {snapshot.totalProducts} products
               </p>
             )}
           </DialogHeader>
