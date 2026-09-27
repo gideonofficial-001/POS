@@ -161,6 +161,14 @@ export default function TransfersPage() {
     );
   };
 
+  const handleUpdate = async () => {
+    const res = await refetch();
+    if (selectedTransfer && res.data) {
+      const updated = res.data.find((t: Transfer) => t.id === selectedTransfer.id);
+      if (updated) setSelectedTransfer(updated);
+    }
+  };
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -223,7 +231,7 @@ export default function TransfersPage() {
         <TransferDetailModal
           transfer={selectedTransfer}
           onClose={() => setSelectedTransfer(null)}
-          onUpdate={refetch}
+          onUpdate={handleUpdate}
         />
       )}
 
