@@ -288,13 +288,13 @@ export default function ClosingStock() {
                     {day.toLocaleDateString('en-GB', { weekday: 'long' })}
                   </TableCell>
                   <TableCell className="text-center">
-                    {snap ? (
-                      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-none gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Captured
-                      </Badge>
-                    ) : isToday ? (
+                    {isToday ? (
                       <Badge variant="outline" className="text-blue-600 border-blue-300 bg-blue-50/50 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800 gap-1 text-xs">
                         <Clock className="w-3 h-3" /> Captures at Midnight
+                      </Badge>
+                    ) : snap ? (
+                      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-none gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Captured
                       </Badge>
                     ) : (
                       <Badge variant="outline" className="text-muted-foreground gap-1">
@@ -306,13 +306,13 @@ export default function ClosingStock() {
                     {snap ? `${snap.productCount} products` : '—'}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground hidden lg:table-cell">
-                    {snap ? (
+                    {isToday ? (
+                      <span className="text-muted-foreground italic">Scheduled at 00:00</span>
+                    ) : snap ? (
                       <span className="flex items-center gap-1 font-mono">
                         <Clock className="w-3 h-3" />
                         {new Date(snap.recordedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                       </span>
-                    ) : isToday ? (
-                      <span className="text-muted-foreground italic">Scheduled at 00:00</span>
                     ) : (
                       '—'
                     )}
