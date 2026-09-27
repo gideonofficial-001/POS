@@ -65,8 +65,9 @@ export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => voi
     setItems(prev => {
       const existing = prev.find(i => i.cartId === cartId)
       if (existing) {
-        if (existing.quantity >= max) { toast.error('Maximum available stock reached'); return prev }
-        return prev.map(i => i.cartId === cartId ? { ...i, quantity: i.quantity + 1 } : i)
+        const currentQty = typeof existing.quantity === 'number' ? existing.quantity : parseInt(existing.quantity, 10) || 0
+        if (currentQty >= max) { toast.error('Maximum available stock reached'); return prev }
+        return prev.map(i => i.cartId === cartId ? { ...i, quantity: currentQty + 1 } : i)
       }
       return [...prev, { cartId, productId: product.id, name: `${product.name} ${nameExt}`, variant, quantity: 1, max }]
     })
@@ -75,24 +76,62 @@ export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => voi
   }
 
   const handleRemove = (cartId: string) => setItems(prev => prev.filter(i => i.cartId !== cartId))
+
+  const handleQuantityChange = (cartId: string, value: string) => {
+    // User requested: validate regex at checkout rather than during typing
+    setItems(prev => prev.map(i => {
+      if (i.cartId === cartId) {
+        return { ...i, quantity: value }
+      }
+      return i
+    }))
+  }
+
   const handleUpdateQty = (cartId: string, delta: number) => {
     setItems(prev => prev.map(i => {
       if (i.cartId === cartId) {
-        const newQ = i.quantity + delta
+        const parsed = parseInt(String(i.quantity), 10)
+        const currentQty = isNaN(parsed) ? 1 : parsed
+        const newQ = currentQty + delta
         if (newQ > 0 && newQ <= i.max) return { ...i, quantity: newQ }
       }
       return i
     }))
   }
 
+  const POSITIVE_INT_REGEX = /^[1-9]\d*$/
+
   const handleSubmit = () => {
     if (!toBranchId) return toast.error('Select a destination branch')
     if (items.length === 0) return toast.error('Cart is empty')
     
+    // Validate quantities at checkout using regex
+    for (const item of items) {
+      const qtyStr = String(item.quantity ?? '').trim()
+
+      if (!POSITIVE_INT_REGEX.test(qtyStr)) {
+        return toast.error(`Invalid quantity for "${item.name}". Please enter a whole positive number.`)
+      }
+
+      const qty = parseInt(qtyStr, 10)
+
+      if (qty <= 0) {
+        return toast.error(`Quantity for "${item.name}" must be greater than 0.`)
+      }
+
+      if (qty > item.max) {
+        return toast.error(`Cannot transfer ${qty} of "${item.name}". Only ${item.max} available in stock.`)
+      }
+    }
+
     submitMutation.mutate({
       toBranchId,
       notes,
-      items: items.map(i => ({ productId: i.productId, quantity: i.quantity, variant: i.variant }))
+      items: items.map(i => ({
+        productId: i.productId,
+        quantity: parseInt(String(i.quantity).trim(), 10),
+        variant: i.variant
+      }))
     })
   }
 
@@ -174,10 +213,20 @@ export function CreateTransferModal({ onClose, onSuccess }: { onClose: () => voi
                 </div>
               ) : items.map(item => (
                 <div key={item.cartId} className="flex items-center gap-2 p-2 bg-card border rounded-md text-sm shadow-sm">
-                  <div className="flex-1 leading-tight font-medium text-[11px] lg:text-xs">{item.name}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="leading-tight font-medium text-[11px] lg:text-xs truncate">{item.name}</div>
+                    <div className="text-[10px] text-muted-foreground">Max available: {item.max}</div>
+                  </div>
                   <div className="flex items-center gap-1 bg-muted/50 rounded-md border p-0.5 shrink-0">
                     <Button variant="ghost" size="icon" className="h-5 w-5 lg:h-6 lg:w-6 hover:bg-muted" onClick={() => handleUpdateQty(item.cartId, -1)}><Minus className="w-3 h-3" /></Button>
-                    <span className="w-4 text-center font-bold text-[11px] lg:text-xs">{item.quantity}</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={item.quantity ?? ''}
+                      onChange={(e) => handleQuantityChange(item.cartId, e.target.value)}
+                      placeholder="Qty"
+                      className="w-12 lg:w-14 text-center font-bold text-[11px] lg:text-xs bg-background border border-muted rounded h-5 lg:h-6 px-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
                     <Button variant="ghost" size="icon" className="h-5 w-5 lg:h-6 lg:w-6 hover:bg-muted" onClick={() => handleUpdateQty(item.cartId, 1)}><Plus className="w-3 h-3" /></Button>
                   </div>
                   <Button variant="ghost" size="icon" className="h-6 w-6 lg:h-7 lg:w-7 text-destructive hover:bg-red-100 shrink-0" onClick={() => handleRemove(item.cartId)}><Trash2 className="w-3 h-3 lg:w-4 lg:h-4" /></Button>
