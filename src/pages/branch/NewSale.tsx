@@ -11,22 +11,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
-import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Smartphone, Tag } from 'lucide-react'
-import { PaymentSplitModal } from './PaymentSplitModal'
+import {
+  ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag,
+  Bookmark, RotateCcw, ShieldAlert, KeyRound, Check
+} from 'lucide-react'
+import { PaymentSplitModal, PaymentEntry } from './PaymentSplitModal'
+import { ThermalReceiptModal } from './ThermalReceiptModal'
 
 const VARIANT_SEPARATOR = '~~'
-
-interface PaymentEntry {
-  method: 'MPESA' | 'CASH'
-  amount: number
-  mpesaRef?: string
-}
 
 const NewSale = () => {
   const { user } = useAuthStore()
   const {
-    items, addItem, removeItem, updateQuantity, updateItemDiscount, clearCart,
+    items, addItem, removeItem, updateQuantity, updateItemDiscount, updateItemCylinder, clearCart,
     getSubtotal, getTotalDiscount, getTotal,
+    parkedCarts, parkCurrentCart, recallCart, removeParkedCart,
   } = useCartStore()
 
   const queryClient = useQueryClient()
@@ -38,10 +37,17 @@ const NewSale = () => {
   // Tracks which cart item has its discount input open
   const [discountOpenFor, setDiscountOpenFor] = useState<string | null>(null)
 
+  // Discount Override Modal State
+  const [overrideModalOpen, setOverrideModalOpen] = useState(false)
+  const [managerOverrideCode, setManagerOverrideCode] = useState('')
+  const [discountReason, setDiscountReason] = useState('')
+
   const [lpgModalOpen, setLpgModalOpen] = useState(false)
   const [selectedInvItem, setSelectedInvItem] = useState<any>(null)
   const [splitModalOpen, setSplitModalOpen] = useState(false)
+  const [parkedModalOpen, setParkedModalOpen] = useState(false)
   const [pendingSaleData, setPendingSaleData] = useState<any>(null)
+  const [completedReceipt, setCompletedReceipt] = useState<any>(null)
   const [invoiceReceipt, setInvoiceReceipt] = useState<{
     code: string; name: string; phone: string; total: number; itemsStr: string
   } | null>(null)
@@ -55,6 +61,20 @@ const NewSale = () => {
       if (!branchId) return []
       const response = await inventoryApi.getAll({ branchId })
       return response.data
+    },
+    enabled: !!branchId,
+  })
+
+  const { data: hiddenCategories = [] } = useQuery<string[]>({
+    queryKey: ['hidden-categories', branchId],
+    queryFn: async () => {
+      if (!branchId) return []
+      try {
+        const res = await inventoryApi.getHiddenCategories(branchId)
+        return Array.isArray(res.data) ? res.data : []
+      } catch {
+        return []
+      }
     },
     enabled: !!branchId,
   })
@@ -73,8 +93,41 @@ const NewSale = () => {
   const createSaleMutation = useMutation({
     mutationFn: (data: any) => salesApi.create(data),
     onSuccess: (response, variables) => {
+      const itemsSnapshot = items.map(item => {
+        const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
+        const label = lpgVariant === 'REFILL' ? ' (Refill)' : lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
+        return {
+          name: `${item.product.name}${label}`,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: item.discount,
+          total: item.total,
+        }
+      })
+
+      const paymentList = variables.payments && variables.payments.length > 0
+        ? variables.payments
+        : [{ method: variables.type === SaleType.INVOICE ? 'INVOICE' : 'CASH', amount: getTotal() }]
+
+      const customerObj = customers.find((c: any) => c.id === variables.customerId)
+
+      // Set thermal receipt data for immediate receipt display & printing
+      setCompletedReceipt({
+        saleCode: response.data.saleCode,
+        date: new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        branchName: response.data?.branch?.name || user?.branchId || 'Branch',
+        cashierName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Cashier',
+        customerName: customerObj?.name || variables.customerName || undefined,
+        customerPhone: customerObj?.phone || undefined,
+        saleType: variables.type,
+        items: itemsSnapshot,
+        subtotal: getSubtotal(),
+        totalDiscount: getTotalDiscount(),
+        total: getTotal(),
+        payments: paymentList,
+      })
+
       if (variables.type === SaleType.INVOICE) {
-        const customer = customers.find((c: any) => c.id === variables.customerId)
         const itemsListStr = items.map(item => {
           const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
           const label = lpgVariant === 'REFILL' ? ' (Refill)' : lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
@@ -82,17 +135,15 @@ const NewSale = () => {
         }).join('\n- ')
         setInvoiceReceipt({
           code: response.data.saleCode,
-          name: customer?.name || 'Customer',
-          phone: customer?.phone || '',
+          name: customerObj?.name || 'Customer',
+          phone: customerObj?.phone || '',
           total: getTotal(),
           itemsStr: itemsListStr,
         })
       } else {
-        const parts = [`Sale completed! Code: ${response.data.saleCode}`]
-        if (variables.mpesaRef) parts.push(`M-Pesa: ${variables.mpesaRef}`)
-        if (variables.customerName) parts.push(`Customer: ${variables.customerName}`)
-        toast.success(parts.join(' · '))
+        toast.success(`Sale completed! Code: ${response.data.saleCode}`)
       }
+
       clearCart()
       setSearch('')
       setSelectedCustomerId('')
@@ -101,6 +152,8 @@ const NewSale = () => {
       setDiscountOpenFor(null)
       setSplitModalOpen(false)
       setPendingSaleData(null)
+      setManagerOverrideCode('')
+      setDiscountReason('')
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
@@ -112,6 +165,7 @@ const NewSale = () => {
 
   const filteredInventory = inventory?.filter((inv: any) => {
     if (!inv.product?.isActive) return false
+    if (inv.product?.categoryId && hiddenCategories.includes(inv.product.categoryId)) return false
     const isLpg = inv.product.type === 'LPG_REFILL' || inv.product.type === 'LPG_CYLINDER'
     const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity
     if (availableStock === 0) return false
@@ -140,6 +194,9 @@ const NewSale = () => {
     type: saleType,
     customerId: requiresCustomer ? selectedCustomerId : undefined,
     customerName: !requiresCustomer && customerName.trim() ? customerName.trim() : undefined,
+    idempotencyKey: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `sale_${Date.now()}_${Math.random()}`,
+    discountReason: discountReason.trim() || undefined,
+    managerOverrideCode: managerOverrideCode.trim() || undefined,
     items: items.map(item => {
       const [productId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
       return {
@@ -151,9 +208,23 @@ const NewSale = () => {
     }),
   })
 
+  const totalDiscount = getTotalDiscount()
+  const subtotal = getSubtotal()
+  const total = getTotal()
+
   const handleCheckout = () => {
     if (items.length === 0) return toast.error('Cart is empty')
     if (requiresCustomer && !selectedCustomerId) return toast.error('Please select a customer for this sale')
+
+    // Tracked cylinder assignment is optional (no scanner required)
+
+    // Verify discount limits for branch manager
+    const requiresOverride = user?.role === 'BRANCH_MANAGER' && (totalDiscount > 500 || totalDiscount > (subtotal * 0.10 + 0.01))
+    if (requiresOverride && !managerOverrideCode.trim()) {
+      setOverrideModalOpen(true)
+      return
+    }
+
     const saleData = buildSaleData()
     if (saleType === SaleType.INVOICE) {
       createSaleMutation.mutate(saleData)
@@ -198,10 +269,6 @@ const NewSale = () => {
     setLpgModalOpen(false)
     setSearch('')
   }
-
-  const totalDiscount = getTotalDiscount()
-  const subtotal = getSubtotal()
-  const total = getTotal()
 
   return (
     <div className="flex flex-col lg:min-h-[calc(100vh-6rem)] bg-background space-y-4 pb-10 lg:pb-0">
@@ -278,11 +345,42 @@ const NewSale = () => {
         {/* ── CART ── */}
         <div className="flex flex-col h-auto lg:h-full">
           <Card className="flex flex-col h-full border-primary/10 shadow-md">
-            <CardHeader className="pb-4 flex-shrink-0">
+            <CardHeader className="pb-3 flex-shrink-0 flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-lg flex items-center gap-2">
                 <ShoppingCart className="w-5 h-5 text-primary" />
                 Cart ({items.length})
               </CardTitle>
+              <div className="flex items-center gap-1.5">
+                {parkedCarts.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 text-xs border-amber-300 dark:border-emerald-500/40 text-amber-800 dark:text-emerald-300 bg-amber-50 dark:bg-emerald-950/30 hover:bg-amber-100 dark:hover:bg-emerald-950/50"
+                    onClick={() => setParkedModalOpen(true)}
+                  >
+                    <Bookmark className="w-3.5 h-3.5 text-amber-600 dark:text-emerald-400" />
+                    Parked ({parkedCarts.length})
+                  </Button>
+                )}
+                {items.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    title="Park this cart to serve another customer"
+                    onClick={() => {
+                      const note = window.prompt('Cart label/note (e.g. customer name or car reg):')
+                      if (note !== null) {
+                        parkCurrentCart(note.trim() || undefined)
+                        toast.success('Cart parked')
+                      }
+                    }}
+                  >
+                    <Bookmark className="w-3.5 h-3.5" />
+                    Park
+                  </Button>
+                )}
+              </div>
             </CardHeader>
 
             <CardContent className="flex-1 flex flex-col min-h-[300px] overflow-hidden space-y-4">
@@ -301,70 +399,125 @@ const NewSale = () => {
                     <ShoppingCart className="w-12 h-12 mb-2" />
                     <p>Cart is empty</p>
                   </div>
-                ) : items.map((item) => (
-                  <div key={item.productId} className="bg-card border rounded-md shadow-sm overflow-hidden">
-                    {/* Main row */}
-                    <div className="flex items-center gap-2 p-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate leading-tight">{item.product.name}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-xs text-primary font-bold">{formatCurrency(item.unitPrice)}</p>
-                          {item.discount > 0 && (
-                            <span className="text-[10px] text-emerald-600 font-semibold">-{formatCurrency(item.discount)}</span>
-                          )}
+                ) : items.map((item) => {
+                  const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
+                  const lineTotal = item.unitPrice * item.quantity - item.discount
+                  return (
+                    <div key={item.productId} className="bg-card border rounded-lg shadow-sm overflow-hidden p-3 transition-colors hover:border-primary/40">
+                      {/* Top Row: Name, variant badge, and delete */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-sm sm:text-base text-foreground leading-snug break-words">
+                              {item.product.name}
+                            </span>
+                            {lpgVariant === 'REFILL' && (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-cyan-950/60 dark:text-cyan-300 dark:border dark:border-cyan-500/40">
+                                Refill
+                              </span>
+                            )}
+                            {lpgVariant === 'EMPTY_SHELL' && (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 dark:border dark:border-amber-500/40">
+                                Empty Shell
+                              </span>
+                            )}
+                            {lpgVariant === 'COMPLETE_SET' && (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border dark:border-emerald-500/40">
+                                Complete Set
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-muted-foreground font-medium">
+                              {formatCurrency(item.unitPrice)} each
+                            </span>
+                            {item.discount > 0 && (
+                              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                -{formatCurrency(item.discount)} off
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Line total & remove */}
+                        <div className="text-right shrink-0 flex items-center gap-2">
+                          <span className="text-sm sm:text-base font-extrabold text-foreground">
+                            {formatCurrency(lineTotal)}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:bg-destructive/10 rounded-md"
+                            title="Remove item"
+                            onClick={() => removeItem(item.productId)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
                         </div>
                       </div>
 
-                      {/* Qty controls */}
-                      <div className="flex items-center gap-1 bg-muted/30 rounded-md border p-0.5">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-muted" onClick={() => updateQuantity(item.productId, item.quantity - 1)}>
-                          <Minus className="w-3 h-3" />
-                        </Button>
-                        <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-muted" onClick={() => updateQuantity(item.productId, item.quantity + 1)}>
-                          <Plus className="w-3 h-3" />
+                      {/* Bottom Controls Row: Stepper and Discount button */}
+                      <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-border/40 gap-2">
+                        <div className="flex items-center gap-1.5 bg-muted/40 rounded-md border p-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded hover:bg-muted font-bold text-foreground"
+                            onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </Button>
+                          <span className="w-8 text-center text-sm font-black text-foreground">
+                            {item.quantity}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded hover:bg-muted font-bold text-foreground"
+                            onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`h-7 px-2.5 text-xs font-medium gap-1 rounded-md ${
+                            item.discount > 0
+                              ? 'text-emerald-700 bg-emerald-100/70 dark:bg-emerald-950/50 dark:text-emerald-300'
+                              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                          }`}
+                          onClick={() => setDiscountOpenFor(discountOpenFor === item.productId ? null : item.productId)}
+                        >
+                          <Tag className="w-3.5 h-3.5" />
+                          {item.discount > 0 ? `Discount: KES ${item.discount}` : 'Add Discount'}
                         </Button>
                       </div>
 
-                      {/* Discount toggle */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={`h-7 w-7 rounded-sm shrink-0 ${item.discount > 0 ? 'text-emerald-600 bg-emerald-50' : 'text-muted-foreground hover:bg-muted'}`}
-                        title="Apply discount to this item"
-                        onClick={() => setDiscountOpenFor(discountOpenFor === item.productId ? null : item.productId)}
-                      >
-                        <Tag className="w-3.5 h-3.5" />
-                      </Button>
-
-                      {/* Delete */}
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10 shrink-0" onClick={() => removeItem(item.productId)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                      {/* Inline discount input — only shown when toggled */}
+                      {discountOpenFor === item.productId && (
+                        <div className="mt-2 p-2 rounded-md bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2">
+                          <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">Disc KES:</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={item.unitPrice * item.quantity}
+                            placeholder="0"
+                            value={item.discount || ''}
+                            onChange={(e) => updateItemDiscount(item.productId, Number(e.target.value))}
+                            className="h-7 text-sm w-28 border-emerald-300 dark:border-emerald-700 bg-background focus-visible:ring-emerald-400"
+                            autoFocus
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            Net: {formatCurrency(item.unitPrice * item.quantity - item.discount)}
+                          </span>
+                        </div>
+                      )}
                     </div>
-
-                    {/* Inline discount input — only shown when toggled */}
-                    {discountOpenFor === item.productId && (
-                      <div className="px-2 pb-2 pt-0 flex items-center gap-2 bg-emerald-50/50 border-t border-emerald-100">
-                        <Tag className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="text-xs text-emerald-700 font-medium">Disc KES</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={item.unitPrice * item.quantity}
-                          placeholder="0"
-                          value={item.discount || ''}
-                          onChange={(e) => updateItemDiscount(item.productId, Number(e.target.value))}
-                          className="h-7 text-sm w-28 border-emerald-300 focus-visible:ring-emerald-400"
-                          autoFocus
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          → {formatCurrency(item.unitPrice * item.quantity - item.discount)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               <div className="flex-shrink-0 space-y-3">
@@ -378,12 +531,12 @@ const NewSale = () => {
 
                 {/* Customer select — invoice & wholesale */}
                 {requiresCustomer && (
-                  <div className="space-y-1.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <Label className="text-xs font-bold text-amber-900 uppercase tracking-wider">Select Customer (Required)</Label>
+                  <div className="space-y-1.5 p-3 bg-amber-50 dark:bg-emerald-950/20 border border-amber-200 dark:border-emerald-500/40 rounded-lg">
+                    <Label className="text-xs font-bold text-amber-900 dark:text-emerald-300 uppercase tracking-wider">Select Customer (Required)</Label>
                     <select
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
-                      className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-card focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
+                      className="w-full p-2.5 border border-amber-300 dark:border-emerald-500/40 rounded-md text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500 dark:focus:ring-emerald-500/60 appearance-none"
                     >
                       <option value="">-- Choose a customer --</option>
                       {customers.map((c: any) => (
@@ -432,10 +585,74 @@ const NewSale = () => {
       {splitModalOpen && pendingSaleData && (
         <PaymentSplitModal
           total={total}
+          pendingSaleData={pendingSaleData}
           onConfirm={handlePaymentConfirm}
           onClose={() => { setSplitModalOpen(false); setPendingSaleData(null) }}
         />
       )}
+
+
+      {/* Discount Manager Override Modal */}
+      <Dialog open={overrideModalOpen} onOpenChange={setOverrideModalOpen}>
+        <DialogContent className="sm:max-w-md bg-card text-card-foreground">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600 dark:text-emerald-400">
+              <ShieldAlert className="w-5 h-5" />
+              Manager Authorization Required
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Total discounts of <strong>{formatCurrency(totalDiscount)}</strong> exceed your branch manager limit (Max 10% or KES 500). Enter the administrator override code and reason to proceed.
+            </p>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Manager Override Code *</Label>
+              <div className="relative">
+                <KeyRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="password"
+                  placeholder="Enter override code"
+                  value={managerOverrideCode}
+                  onChange={(e) => setManagerOverrideCode(e.target.value)}
+                  className="pl-9 h-10"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Discount Reason (Optional)</Label>
+              <Input
+                placeholder="e.g. Loyalty customer, promotional offer..."
+                value={discountReason}
+                onChange={(e) => setDiscountReason(e.target.value)}
+                className="h-10"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setOverrideModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (!managerOverrideCode.trim()) {
+                    toast.error('Please enter the manager override code')
+                    return
+                  }
+                  setOverrideModalOpen(false)
+                  const saleData = buildSaleData()
+                  if (saleType === SaleType.INVOICE) {
+                    createSaleMutation.mutate(saleData)
+                  } else {
+                    setPendingSaleData(saleData)
+                    setSplitModalOpen(true)
+                  }
+                }}
+              >
+                Authorize & Checkout
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* LPG selection modal */}
       <Dialog open={lpgModalOpen} onOpenChange={setLpgModalOpen}>
@@ -446,8 +663,8 @@ const NewSale = () => {
               <Flame className="w-5 h-5 mr-3 text-blue-500" />
               <div className="flex-1"><div className="flex justify-between w-full"><p className="font-bold">Gas Refill Only</p><span className="text-xs font-medium text-blue-600">{selectedInvItem?.fullCylinders} left</span></div><p className="text-xs text-muted-foreground">Customer returns empty shell</p></div>
             </Button>
-            <Button variant="outline" className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`} onClick={() => handleLpgSelect('EMPTY_SHELL')} disabled={selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null}>
-              <Package className="w-5 h-5 mr-3 text-amber-600" />
+            <Button variant="outline" className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400 dark:hover:border-emerald-400/60'}`} onClick={() => handleLpgSelect('EMPTY_SHELL')} disabled={selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null}>
+              <Package className="w-5 h-5 mr-3 text-amber-600 dark:text-emerald-400" />
               <div className="flex-1"><div className="flex justify-between w-full"><p className="font-bold">Empty Cylinder</p><span className="text-xs font-medium text-amber-600">{Math.max(0, selectedInvItem?.emptyCylinders || 0)} left</span></div><p className="text-xs text-muted-foreground">{saleType === SaleType.WHOLESALE ? (selectedInvItem?.product?.wholesaleEmptyPrice ? formatCurrency(selectedInvItem.product.wholesaleEmptyPrice) : 'price not set') : (selectedInvItem?.product?.emptyPrice != null ? formatCurrency(selectedInvItem.product.emptyPrice) : 'price not set')}</p></div>
             </Button>
             <Button className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : ''}`} onClick={() => handleLpgSelect('COMPLETE_SET')} disabled={selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null}>
@@ -478,6 +695,76 @@ const NewSale = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Parked Carts Modal */}
+      <Dialog open={parkedModalOpen} onOpenChange={setParkedModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bookmark className="w-5 h-5 text-primary" /> Parked Carts ({parkedCarts.length})
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2 max-h-[60vh] overflow-y-auto">
+            {parkedCarts.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No parked carts.</p>
+            ) : (
+              parkedCarts.map((pc) => {
+                const pcTotal = pc.items.reduce((acc, it) => acc + (it.unitPrice * it.quantity - (it.discount || 0)), 0)
+                return (
+                  <div key={pc.id} className="p-3 border rounded-lg bg-card flex items-center justify-between gap-3 shadow-sm hover:border-primary/40 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm truncate">{pc.label || pc.note || 'Untitled Cart'}</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {new Date(pc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {pc.items.length} item{pc.items.length !== 1 ? 's' : ''} • <span className="font-semibold text-primary">{formatCurrency(pcTotal)}</span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-8 gap-1 text-xs"
+                        onClick={() => {
+                          if (items.length > 0 && !window.confirm('Restoring this parked cart will replace your current active cart items. Continue?')) {
+                            return
+                          }
+                          recallCart(pc.id)
+                          setParkedModalOpen(false)
+                          toast.success('Parked cart restored')
+                        }}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> Recall
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
+                        onClick={() => {
+                          removeParkedCart(pc.id)
+                          toast.info('Parked cart discarded')
+                        }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Thermal Receipt Modal */}
+      {completedReceipt && (
+        <ThermalReceiptModal
+          receipt={completedReceipt}
+          onClose={() => setCompletedReceipt(null)}
+        />
+      )}
 
     </div>
   )
