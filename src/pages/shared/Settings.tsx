@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/store'
+import { useThemeStore } from '@/store/theme'
+import { usePrinterStore } from '@/store/printer'
 import api from '@/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { UserCircle, Shield, Eye, EyeOff, Check, AlertCircle, LogOut } from 'lucide-react'
+import { UserCircle, Shield, Eye, EyeOff, Check, AlertCircle, LogOut, Palette, Sun, Moon, Sparkles, Heart, Droplets, Printer, SlidersHorizontal } from 'lucide-react'
 
 const Settings = () => {
   const { user, token, setAuth, clearAuth } = useAuthStore()
+  const { theme, setTheme } = useThemeStore()
+  const printer = usePrinterStore()
   
   // Profile State
   const [firstName, setFirstName] = useState(user?.firstName || '')
@@ -227,6 +232,195 @@ const Settings = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Theme & Appearance Card */}
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Palette className="w-5 h-5 text-primary" /> Appearance & Theme
+          </CardTitle>
+          <CardDescription>
+            Choose your preferred interface theme. Changes apply immediately across all screens.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+            {/* Light Mode */}
+            <button
+              type="button"
+              onClick={() => setTheme('light')}
+              className={`p-4 rounded-xl border-2 text-left transition-all relative ${
+                theme === 'light'
+                  ? 'border-primary bg-primary/5 shadow-sm'
+                  : 'border-border hover:border-muted-foreground/30 bg-card'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600">
+                  <Sun className="w-5 h-5" />
+                </div>
+                {theme === 'light' && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-primary" />
+                )}
+              </div>
+              <p className="font-bold text-sm text-foreground">Light Mode</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Crisp, clean daylight workspace</p>
+            </button>
+
+            {/* Dark Mode */}
+            <button
+              type="button"
+              onClick={() => setTheme('dark')}
+              className={`p-4 rounded-xl border-2 text-left transition-all relative ${
+                theme === 'dark'
+                  ? 'border-primary bg-primary/5 shadow-sm'
+                  : 'border-border hover:border-muted-foreground/30 bg-card'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-9 h-9 rounded-lg bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                  <Moon className="w-5 h-5" />
+                </div>
+                {theme === 'dark' && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-primary" />
+                )}
+              </div>
+              <p className="font-bold text-sm text-foreground">Dark Mode</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Classic slate with neon accents</p>
+            </button>
+
+            {/* Dark Jungle Green */}
+            <button
+              type="button"
+              onClick={() => setTheme('jungle')}
+              className={`p-4 rounded-xl border-2 text-left transition-all relative ${
+                theme === 'jungle'
+                  ? 'border-emerald-500 bg-emerald-950/30 shadow-sm'
+                  : 'border-border hover:border-muted-foreground/30 bg-card'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-9 h-9 rounded-lg bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                {theme === 'jungle' && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                )}
+              </div>
+              <p className="font-bold text-sm text-foreground">Dark Jungle Green</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Cool emerald & deep forest shade</p>
+            </button>
+
+            {/* Neon Pink */}
+            <button
+              type="button"
+              onClick={() => setTheme('pink')}
+              className={`p-4 rounded-xl border-2 text-left transition-all relative ${
+                theme === 'pink'
+                  ? 'border-pink-500 bg-pink-950/30 shadow-sm'
+                  : 'border-border hover:border-muted-foreground/30 bg-card'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-9 h-9 rounded-lg bg-pink-950/80 border border-pink-500/40 flex items-center justify-center text-pink-400">
+                  <Heart className="w-5 h-5" />
+                </div>
+                {theme === 'pink' && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-pink-400" />
+                )}
+              </div>
+              <p className="font-bold text-sm text-foreground">Neon Pink</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Vibrant fuchsia & velvet rose shade</p>
+            </button>
+
+            {/* Oceanic Aqua */}
+            <button
+              type="button"
+              onClick={() => setTheme('aqua')}
+              className={`p-4 rounded-xl border-2 text-left transition-all relative ${
+                theme === 'aqua'
+                  ? 'border-cyan-500 bg-cyan-950/30 shadow-sm'
+                  : 'border-border hover:border-muted-foreground/30 bg-card'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-9 h-9 rounded-lg bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+                  <Droplets className="w-5 h-5" />
+                </div>
+                {theme === 'aqua' && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+                )}
+              </div>
+              <p className="font-bold text-sm text-foreground">Oceanic Aqua</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Electric cyan & deep abyss shade</p>
+            </button>
+
+            {/* Bright Cyan */}
+            <button
+              type="button"
+              onClick={() => setTheme('cyan')}
+              className={`p-4 rounded-xl border-2 text-left transition-all relative ${
+                theme === 'cyan'
+                  ? 'border-cyan-500 bg-cyan-500/10 shadow-sm'
+                  : 'border-border hover:border-muted-foreground/30 bg-card'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-9 h-9 rounded-lg bg-cyan-100 dark:bg-cyan-950/80 border border-cyan-400 flex items-center justify-center text-cyan-600 dark:text-cyan-400">
+                  <Droplets className="w-5 h-5" />
+                </div>
+                {theme === 'cyan' && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />
+                )}
+              </div>
+              <p className="font-bold text-sm text-foreground">Bright Cyan</p>
+              <p className="text-xs text-muted-foreground mt-0.5">High-contrast dark content & vivid cyan accents</p>
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Thermal Receipt Printer Setup Card */}
+      <Card className="shadow-sm border-primary/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Printer className="w-5 h-5 text-primary" /> Thermal Receipt Printer Setup
+          </CardTitle>
+          <CardDescription>
+            Configure POS thermal printer specifications, 58mm compact vs 80mm standard paper width, printing scaling ratio, typography, and test receipt prints.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-muted/30 rounded-lg border">
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="font-semibold text-sm">Active Printer Profile</p>
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
+                  {printer.paperWidth} ({printer.printScale}%)
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {printer.printerName} &bull; Font: {printer.fontSize} &bull; Auto-print on checkout: {printer.autoPrintOnSale ? 'Enabled' : 'Disabled'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => printer.runTestPrint()}
+              >
+                <Printer className="w-3.5 h-3.5" /> Test Print
+              </Button>
+              <Link to="/printer-setup">
+                <Button size="sm" className="gap-1.5 text-xs bg-primary text-primary-foreground">
+                  <SlidersHorizontal className="w-3.5 h-3.5" /> Configure Printer
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Session Management Card */}
       <Card className="shadow-sm border-destructive/20">
