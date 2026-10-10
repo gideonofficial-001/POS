@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -12,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PackageSearch, AlertTriangle, Store, ArrowLeft, Plus, Trash2, Settings2, DollarSign, Globe, MapPin, Pin } from 'lucide-react'
+import { PackageSearch, AlertTriangle, Store, ArrowLeft, Plus, Trash2, Settings2, DollarSign, Globe, MapPin, Pin, SlidersHorizontal, Pencil, Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 
 // ── LOCAL ZUSTAND STORE FOR CATEGORY PINNING ─────────────────────────────────
@@ -56,6 +57,8 @@ const Inventory = () => {
   const [adjustReason, setAdjustReason] = useState('')
 
   const [isEditPriceOpen, setIsEditPriceOpen] = useState(false)
+  const [editProductName, setEditProductName] = useState('')
+  const [editProductDescription, setEditProductDescription] = useState('')
   const [editPrice, setEditPrice] = useState<number>(0)
   const [editEmptyPrice, setEditEmptyPrice] = useState<number>(0)
   const [editWholesalePrice, setEditWholesalePrice] = useState<number>(0)
@@ -71,6 +74,7 @@ const Inventory = () => {
     price: 0, emptyPrice: 0, wholesalePrice: 0, wholesaleEmptyPrice: 0, minStockLevel: 10
   })
 
+  const [isVisibilityModalOpen, setIsVisibilityModalOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ inventoryId: string; productId: string; name: string; isGlobal: boolean } | null>(null)
 
   const { data: branches, isLoading: isLoadingBranches } = useQuery({
@@ -94,6 +98,37 @@ const Inventory = () => {
     queryFn: async () => (await productsApi.getCategories()).data,
   })
 
+  const { data: hiddenCategories = [] } = useQuery<string[]>({
+    queryKey: ['hidden-categories', activeBranchId],
+    queryFn: async () => {
+      if (!activeBranchId) return []
+      try {
+        const res = await inventoryApi.getHiddenCategories(activeBranchId)
+        return Array.isArray(res.data) ? res.data : []
+      } catch {
+        return []
+      }
+    },
+    enabled: !!activeBranchId,
+  })
+
+  const toggleHiddenCategoryMutation = useMutation({
+    mutationFn: async ({ categoryId, hide }: { categoryId: string; hide: boolean }) => {
+      if (!activeBranchId) throw new Error('No branch selected')
+      const updated = hide
+        ? Array.from(new Set([...hiddenCategories, categoryId]))
+        : hiddenCategories.filter(id => id !== categoryId)
+      return (await inventoryApi.setHiddenCategories(activeBranchId, updated)).data
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['hidden-categories', activeBranchId] })
+      toast.success(vars.hide ? 'Category hidden for this branch' : 'Category unhidden for this branch')
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message || 'Failed to update category visibility')
+    }
+  })
+
   const activeBranch = branches?.find((b: any) => b.id === activeBranchId) || inventory?.[0]?.branch
 
   const adjustStockMutation = useMutation({
@@ -109,13 +144,20 @@ const Inventory = () => {
 
   const updatePriceMutation = useMutation({
     mutationFn: async (data: any) =>
-      await productsApi.update(data.id, { price: data.price, emptyPrice: data.emptyPrice, wholesalePrice: data.wholesalePrice, wholesaleEmptyPrice: data.wholesaleEmptyPrice }),
+      await productsApi.update(data.id, {
+        name: data.name,
+        description: data.description,
+        price: data.price,
+        emptyPrice: data.emptyPrice,
+        wholesalePrice: data.wholesalePrice,
+        wholesaleEmptyPrice: data.wholesaleEmptyPrice,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory', activeBranchId] })
       setIsEditPriceOpen(false)
-      toast.success('Prices updated successfully')
+      toast.success('Product updated successfully')
     },
-    onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to update prices')
+    onError: (error: any) => toast.error(error?.response?.data?.message || 'Failed to update product')
   })
 
   const deleteProductMutation = useMutation({
@@ -197,7 +239,13 @@ const Inventory = () => {
     })
 
     return mapped
-      .filter((cat: any) => cat.items.length > 0) // Hide empty categories
+      .filter((cat: any) => {
+        if (cat.items.length === 0) return false
+        if (user?.role === UserRole.BRANCH_MANAGER && hiddenCategories.includes(cat.id)) {
+          return false
+        }
+        return true
+      })
       .sort((a: any, b: any) => { // Sort: Pinned first, then alphabetical
         const aPinned = pinnedCategories.includes(a.id)
         const bPinned = pinnedCategories.includes(b.id)
@@ -205,9 +253,16 @@ const Inventory = () => {
         if (!aPinned && bPinned) return 1
         return a.name.localeCompare(b.name)
       })
-  }, [categories, inventory, search, pinnedCategories])
+  }, [categories, inventory, search, pinnedCategories, hiddenCategories, user?.role])
 
-  const isSelectedLpg = selectedItem?.product?.category?.name.toUpperCase().includes('LPG')
+  const isSelectedLpg = !!(
+    selectedItem?.product?.isLpg ||
+    selectedItem?.product?.isCylinderTracked ||
+    selectedItem?.product?.type === 'LPG_REFILL' ||
+    selectedItem?.product?.type === 'LPG_CYLINDER' ||
+    selectedItem?.product?.category?.name?.toUpperCase().includes('LPG') ||
+    selectedItem?.fullCylinders != null
+  )
 
   if (!activeBranchId && user?.role !== UserRole.BRANCH_MANAGER) {
     return (
@@ -258,16 +313,30 @@ const Inventory = () => {
           </div>
         </div>
 
-        {user?.role === UserRole.SUPER_ADMIN && (
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setIsAddCategoryOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" /> Add Category
+        <div className="flex gap-2 flex-wrap items-center">
+          {(user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.OVERALL_MANAGER) && (
+            <Button variant="outline" asChild>
+              <Link to="/stock-adjustments">
+                <SlidersHorizontal className="w-4 h-4 mr-2" /> Adjustments Log
+              </Link>
             </Button>
-            <Button onClick={() => setIsAddProductOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" /> Add Product
-            </Button>
-          </div>
-        )}
+          )}
+          {user?.role === UserRole.SUPER_ADMIN && (
+            <>
+              {activeBranchId && (
+                <Button variant="outline" onClick={() => setIsVisibilityModalOpen(true)}>
+                  <EyeOff className="w-4 h-4 mr-2" /> Category Visibility
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setIsAddCategoryOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" /> Add Category
+              </Button>
+              <Button onClick={() => setIsAddProductOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" /> Add Product
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ── Filters bar ── */}
@@ -306,7 +375,15 @@ const Inventory = () => {
             </div>
           ) : (
             displayCategories.map((category: any) => {
-              const isLpgConfig = category.name.toUpperCase().includes('LPG')
+              const isLpgConfig =
+                category.name.toUpperCase().includes('LPG') ||
+                category.items.some((item: any) =>
+                  item.product?.isLpg ||
+                  item.product?.isCylinderTracked ||
+                  item.product?.type === 'LPG_REFILL' ||
+                  item.product?.type === 'LPG_CYLINDER' ||
+                  item.fullCylinders != null
+                )
               const currentPage = pageMap[category.id] || 1
               const itemsPerPage = 10
               const paginatedItems = category.items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
@@ -339,18 +416,48 @@ const Inventory = () => {
                       >
                         <Pin className={`w-4 h-4 ${isPinned ? 'fill-current' : ''}`} />
                       </Button>
+
+                      {hiddenCategories.includes(category.id) && (
+                        <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                          Hidden for this branch
+                        </Badge>
+                      )}
                     </div>
-                    {user?.role === UserRole.SUPER_ADMIN && (
-                      <Button
-                        variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 h-8"
-                        onClick={() => {
-                          if (confirm(`Delete the "${category.name}" category?\n\nProducts inside will be unlinked but not deleted.`))
-                            deleteCategoryMutation.mutate(category.id)
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" /> Delete
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {user?.role === UserRole.SUPER_ADMIN && activeBranchId && (
+                        <Button
+                          variant={hiddenCategories.includes(category.id) ? "default" : "outline"}
+                          size="sm"
+                          className="h-8 text-xs font-semibold"
+                          onClick={() => toggleHiddenCategoryMutation.mutate({
+                            categoryId: category.id,
+                            hide: !hiddenCategories.includes(category.id)
+                          })}
+                          disabled={toggleHiddenCategoryMutation.isPending}
+                        >
+                          {hiddenCategories.includes(category.id) ? (
+                            <>
+                              <Eye className="w-3.5 h-3.5 mr-1.5" /> Unhide for Branch
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="w-3.5 h-3.5 mr-1.5" /> Hide for Branch
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      {user?.role === UserRole.SUPER_ADMIN && (
+                        <Button
+                          variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 h-8"
+                          onClick={() => {
+                            if (confirm(`Delete the "${category.name}" category?\n\nProducts inside will be unlinked but not deleted.`))
+                              deleteCategoryMutation.mutate(category.id)
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" /> Delete
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Table */}
@@ -430,9 +537,12 @@ const Inventory = () => {
                                   <TableCell className="text-right pr-4">
                                     <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                       <Button
-                                        variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50"
+                                        variant="ghost" size="icon" className="h-8 w-8 hover:bg-emerald-50 text-emerald-700"
+                                        title="Edit Product & Pricing"
                                         onClick={() => {
                                           setSelectedItem(item)
+                                          setEditProductName(item.product.name)
+                                          setEditProductDescription(item.product.description || '')
                                           setEditPrice(Number(item.product.price))
                                           setEditEmptyPrice(Number(item.product.emptyPrice || 0))
                                           setEditWholesalePrice(Number(item.product.wholesalePrice || item.product.price))
@@ -440,7 +550,7 @@ const Inventory = () => {
                                           setIsEditPriceOpen(true)
                                         }}
                                       >
-                                        <DollarSign className="w-4 h-4 text-green-600" />
+                                        <Pencil className="w-4 h-4 text-emerald-600" />
                                       </Button>
                                       <Button
                                         variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50"
@@ -513,7 +623,7 @@ const Inventory = () => {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="font-semibold text-base">"{deleteTarget?.name}"</p>
-            <div className={`rounded-lg border p-3 text-sm space-y-1.5 ${deleteTarget?.isGlobal ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 text-amber-800 dark:text-amber-200' : 'bg-muted/50 border-muted text-foreground'}`}>
+            <div className={`rounded-lg border p-3 text-sm space-y-1.5 ${deleteTarget?.isGlobal ? 'bg-amber-50 dark:bg-emerald-950/20 border-amber-200 dark:border-emerald-500/40 text-amber-800 dark:text-emerald-200' : 'bg-muted/50 border-muted text-foreground'}`}>
               <p className="font-bold flex items-center gap-1.5">
                 {deleteTarget?.isGlobal ? <Globe className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}
                 {deleteTarget?.isGlobal ? 'Global Action (HQ)' : 'Local Branch Action'}
@@ -579,23 +689,51 @@ const Inventory = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAdjustStockOpen(false)}>Cancel</Button>
-            <Button onClick={() => adjustStockMutation.mutate({
-              id: selectedItem.id,
-              quantity: adjustQuantity,
-              fullCylinders: isSelectedLpg ? adjustFull : undefined,
-              reason: adjustReason
-            })}>
+            <Button
+              disabled={adjustStockMutation.isPending}
+              onClick={() => {
+                if (isSelectedLpg && adjustFull > adjustQuantity) {
+                  return toast.error('Full cylinders cannot exceed total shells');
+                }
+                adjustStockMutation.mutate({
+                  id: selectedItem.id,
+                  quantity: adjustQuantity,
+                  fullCylinders: isSelectedLpg ? adjustFull : undefined,
+                  reason: adjustReason || 'Manual inventory adjustment'
+                });
+              }}
+            >
               {adjustStockMutation.isPending ? 'Saving...' : 'Save Adjustment'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit Price Dialog */}
+      {/* Edit Product Details & Pricing Dialog (Super Admin only) */}
       <Dialog open={isEditPriceOpen} onOpenChange={setIsEditPriceOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Edit Pricing: {selectedItem?.product?.name}</DialogTitle></DialogHeader>
-          <div className="space-y-6 py-4">
+          <DialogHeader><DialogTitle>Edit Product: {selectedItem?.product?.name}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-3">
+            {/* Product Details (Name & Description) */}
+            <div className="space-y-3 bg-muted/10 p-3 rounded-lg border">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Product Name *</label>
+                <Input
+                  value={editProductName}
+                  onChange={(e) => setEditProductName(e.target.value)}
+                  placeholder="Product Name"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description (Optional)</label>
+                <Input
+                  value={editProductDescription}
+                  onChange={(e) => setEditProductDescription(e.target.value)}
+                  placeholder="Product Description"
+                />
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4 bg-muted/20 p-3 rounded-lg border">
               <div className="space-y-2 col-span-2"><h4 className="text-sm font-bold text-muted-foreground uppercase">Retail Pricing</h4></div>
               <div className="space-y-2">
@@ -625,14 +763,19 @@ const Inventory = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditPriceOpen(false)}>Cancel</Button>
-            <Button onClick={() => updatePriceMutation.mutate({
-              id: selectedItem.product.id,
-              price: editPrice,
-              emptyPrice: isSelectedLpg ? editEmptyPrice : undefined,
-              wholesalePrice: editWholesalePrice,
-              wholesaleEmptyPrice: isSelectedLpg ? editWholesaleEmptyPrice : undefined
-            })}>
-              {updatePriceMutation.isPending ? 'Updating...' : 'Save Prices'}
+            <Button
+              disabled={!editProductName.trim() || updatePriceMutation.isPending}
+              onClick={() => updatePriceMutation.mutate({
+                id: selectedItem.product.id,
+                name: editProductName.trim(),
+                description: editProductDescription.trim() || undefined,
+                price: editPrice,
+                emptyPrice: isSelectedLpg ? editEmptyPrice : undefined,
+                wholesalePrice: editWholesalePrice,
+                wholesaleEmptyPrice: isSelectedLpg ? editWholesaleEmptyPrice : undefined
+              })}
+            >
+              {updatePriceMutation.isPending ? 'Updating...' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -704,11 +847,21 @@ const Inventory = () => {
             <Button variant="outline" onClick={() => setIsAddProductOpen(false)}>Cancel</Button>
             <Button
               disabled={!newProduct.name || !newProduct.code || createProductMutation.isPending}
-              onClick={() => createProductMutation.mutate({
-                ...newProduct,
-                emptyPrice: newProduct.type === 'LPG_REFILL' ? newProduct.emptyPrice : undefined,
-                wholesaleEmptyPrice: newProduct.type === 'LPG_REFILL' ? newProduct.wholesaleEmptyPrice : undefined
-              })}
+              onClick={() => {
+                const selectedCat = categories?.find((c: any) => c.id === newProduct.categoryId)
+                const isLpg =
+                  newProduct.type === 'LPG_REFILL' ||
+                  newProduct.type === 'LPG_CYLINDER' ||
+                  !!selectedCat?.name?.toUpperCase().includes('LPG')
+
+                createProductMutation.mutate({
+                  ...newProduct,
+                  isLpg,
+                  isCylinderTracked: isLpg,
+                  emptyPrice: isLpg ? newProduct.emptyPrice : undefined,
+                  wholesaleEmptyPrice: isLpg ? newProduct.wholesaleEmptyPrice : undefined
+                })
+              }}
             >
               {createProductMutation.isPending ? 'Saving...' : 'Save Product'}
             </Button>
@@ -741,6 +894,73 @@ const Inventory = () => {
             )}>
               Create Category
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Category Visibility Dialog */}
+      <Dialog open={isVisibilityModalOpen} onOpenChange={setIsVisibilityModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <EyeOff className="w-5 h-5 text-primary" />
+              Branch Category Visibility
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Hide or unhide product categories for <strong>{activeBranch?.name || 'this branch'}</strong>.
+              Hidden categories will not appear during new sales or stock checks for this branch.
+            </p>
+            <div className="max-h-72 overflow-y-auto space-y-2 border rounded-lg p-3">
+              {categories?.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No categories created yet.</p>
+              ) : (
+                categories?.map((cat: any) => {
+                  const isHidden = hiddenCategories.includes(cat.id)
+                  return (
+                    <div
+                      key={cat.id}
+                      className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                        isHidden ? 'bg-amber-500/10 border-amber-500/30' : 'bg-card border-border'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <p className="font-semibold text-sm">{cat.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {isHidden ? 'Hidden from this branch' : 'Visible for this branch'}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={isHidden ? 'default' : 'outline'}
+                        className="h-8 text-xs font-semibold"
+                        onClick={() => toggleHiddenCategoryMutation.mutate({
+                          categoryId: cat.id,
+                          hide: !isHidden
+                        })}
+                        disabled={toggleHiddenCategoryMutation.isPending}
+                      >
+                        {isHidden ? (
+                          <>
+                            <Eye className="w-3.5 h-3.5 mr-1.5" />
+                            Unhide
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5 mr-1.5" />
+                            Hide
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setIsVisibilityModalOpen(false)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
