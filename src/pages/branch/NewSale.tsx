@@ -37,6 +37,12 @@ const NewSale = () => {
   // Tracks which cart item has its discount input open
   const [discountOpenFor, setDiscountOpenFor] = useState<string | null>(null)
 
+  // Cylinder Selection State
+  const [cylinderPickerItem, setCylinderPickerItem] = useState<any | null>(null)
+  const [availableCylinders, setAvailableCylinders] = useState<any[]>([])
+  const [loadingCylinders, setLoadingCylinders] = useState(false)
+  const [cylinderSearch, setCylinderSearch] = useState('')
+
   // Discount Override Modal State
   const [overrideModalOpen, setOverrideModalOpen] = useState(false)
   const [managerOverrideCode, setManagerOverrideCode] = useState('')
@@ -65,20 +71,6 @@ const NewSale = () => {
     enabled: !!branchId,
   })
 
-  const { data: hiddenCategories = [] } = useQuery<string[]>({
-    queryKey: ['hidden-categories', branchId],
-    queryFn: async () => {
-      if (!branchId) return []
-      try {
-        const res = await inventoryApi.getHiddenCategories(branchId)
-        return Array.isArray(res.data) ? res.data : []
-      } catch {
-        return []
-      }
-    },
-    enabled: !!branchId,
-  })
-
   const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
@@ -90,6 +82,23 @@ const NewSale = () => {
     },
   })
 
+  const openCylinderPickerForItem = async (item: any) => {
+    setCylinderPickerItem(item)
+    setCylinderSearch('')
+    setLoadingCylinders(true)
+    const [rawProductId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
+    const status = lpgVariant === 'EMPTY_SHELL' ? 'EMPTY' : 'FULL'
+    try {
+      const res = await inventoryApi.getAvailableCylinders(branchId, rawProductId, status)
+      setAvailableCylinders(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      toast.error('Failed to load available cylinders')
+      setAvailableCylinders([])
+    } finally {
+      setLoadingCylinders(false)
+    }
+  }
+
   const createSaleMutation = useMutation({
     mutationFn: (data: any) => salesApi.create(data),
     onSuccess: (response, variables) => {
@@ -97,7 +106,7 @@ const NewSale = () => {
         const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
         const label = lpgVariant === 'REFILL' ? ' (Refill)' : lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
         return {
-          name: `${item.product.name}${label}`,
+          name: `${item.product.name}${label}${item.cylinderSerial ? ` [${item.cylinderSerial}]` : ''}`,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discount: item.discount,
@@ -165,7 +174,6 @@ const NewSale = () => {
 
   const filteredInventory = inventory?.filter((inv: any) => {
     if (!inv.product?.isActive) return false
-    if (inv.product?.categoryId && hiddenCategories.includes(inv.product.categoryId)) return false
     const isLpg = inv.product.type === 'LPG_REFILL' || inv.product.type === 'LPG_CYLINDER'
     const availableStock = isLpg ? (inv.fullCylinders || 0) : inv.quantity
     if (availableStock === 0) return false
@@ -204,6 +212,8 @@ const NewSale = () => {
         quantity: item.quantity,
         discount: item.discount,
         ...(lpgVariant ? { lpgVariant } : {}),
+        cylinderId: item.cylinderId || undefined,
+        serialNumber: item.cylinderSerial || undefined,
       }
     }),
   })
@@ -331,6 +341,11 @@ const NewSale = () => {
                         </div>
                         <div>
                           <h4 className="font-semibold text-sm line-clamp-2 leading-snug">{product.name}</h4>
+                          {product.isCylinderTracked && (
+                            <span className="text-[10px] text-muted-foreground font-medium block mt-0.5">
+                              • Serialized (Optional)
+                            </span>
+                          )}
                           <p className="text-lg font-black text-primary mt-1">{formatCurrency(displayPrice)}</p>
                         </div>
                       </CardContent>
@@ -399,125 +414,95 @@ const NewSale = () => {
                     <ShoppingCart className="w-12 h-12 mb-2" />
                     <p>Cart is empty</p>
                   </div>
-                ) : items.map((item) => {
-                  const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
-                  const lineTotal = item.unitPrice * item.quantity - item.discount
-                  return (
-                    <div key={item.productId} className="bg-card border rounded-lg shadow-sm overflow-hidden p-3 transition-colors hover:border-primary/40">
-                      {/* Top Row: Name, variant badge, and delete */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-bold text-sm sm:text-base text-foreground leading-snug break-words">
-                              {item.product.name}
-                            </span>
-                            {lpgVariant === 'REFILL' && (
-                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-cyan-950/60 dark:text-cyan-300 dark:border dark:border-cyan-500/40">
-                                Refill
-                              </span>
-                            )}
-                            {lpgVariant === 'EMPTY_SHELL' && (
-                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 dark:border dark:border-amber-500/40">
-                                Empty Shell
-                              </span>
-                            )}
-                            {lpgVariant === 'COMPLETE_SET' && (
-                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border dark:border-emerald-500/40">
-                                Complete Set
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-muted-foreground font-medium">
-                              {formatCurrency(item.unitPrice)} each
-                            </span>
-                            {item.discount > 0 && (
-                              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                -{formatCurrency(item.discount)} off
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Line total & remove */}
-                        <div className="text-right shrink-0 flex items-center gap-2">
-                          <span className="text-sm sm:text-base font-extrabold text-foreground">
-                            {formatCurrency(lineTotal)}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive hover:bg-destructive/10 rounded-md"
-                            title="Remove item"
-                            onClick={() => removeItem(item.productId)}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                ) : items.map((item) => (
+                  <div key={item.productId} className="bg-card border rounded-md shadow-sm overflow-hidden">
+                    {/* Main row */}
+                    <div className="flex items-center gap-2 p-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate leading-tight">{item.product.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-xs text-primary font-bold">{formatCurrency(item.unitPrice)}</p>
+                          {item.discount > 0 && (
+                            <span className="text-[10px] text-emerald-600 font-semibold">-{formatCurrency(item.discount)}</span>
+                          )}
                         </div>
                       </div>
 
-                      {/* Bottom Controls Row: Stepper and Discount button */}
-                      <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-border/40 gap-2">
-                        <div className="flex items-center gap-1.5 bg-muted/40 rounded-md border p-0.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 rounded hover:bg-muted font-bold text-foreground"
-                            onClick={() => updateQuantity(item.productId, item.quantity - 1)}
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </Button>
-                          <span className="w-8 text-center text-sm font-black text-foreground">
-                            {item.quantity}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 rounded hover:bg-muted font-bold text-foreground"
-                            onClick={() => updateQuantity(item.productId, item.quantity + 1)}
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={`h-7 px-2.5 text-xs font-medium gap-1 rounded-md ${
-                            item.discount > 0
-                              ? 'text-emerald-700 bg-emerald-100/70 dark:bg-emerald-950/50 dark:text-emerald-300'
-                              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                          }`}
-                          onClick={() => setDiscountOpenFor(discountOpenFor === item.productId ? null : item.productId)}
-                        >
-                          <Tag className="w-3.5 h-3.5" />
-                          {item.discount > 0 ? `Discount: KES ${item.discount}` : 'Add Discount'}
+                      {/* Qty controls */}
+                      <div className="flex items-center gap-1 bg-muted/30 rounded-md border p-0.5">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-muted" onClick={() => updateQuantity(item.productId, item.quantity - 1)}>
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-sm hover:bg-muted" onClick={() => updateQuantity(item.productId, item.quantity + 1)}>
+                          <Plus className="w-3 h-3" />
                         </Button>
                       </div>
 
-                      {/* Inline discount input — only shown when toggled */}
-                      {discountOpenFor === item.productId && (
-                        <div className="mt-2 p-2 rounded-md bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2">
-                          <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          <span className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">Disc KES:</span>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={item.unitPrice * item.quantity}
-                            placeholder="0"
-                            value={item.discount || ''}
-                            onChange={(e) => updateItemDiscount(item.productId, Number(e.target.value))}
-                            className="h-7 text-sm w-28 border-emerald-300 dark:border-emerald-700 bg-background focus-visible:ring-emerald-400"
-                            autoFocus
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            Net: {formatCurrency(item.unitPrice * item.quantity - item.discount)}
-                          </span>
-                        </div>
-                      )}
+                      {/* Discount toggle */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-7 w-7 rounded-sm shrink-0 ${item.discount > 0 ? 'text-emerald-600 bg-emerald-50' : 'text-muted-foreground hover:bg-muted'}`}
+                        title="Apply discount to this item"
+                        onClick={() => setDiscountOpenFor(discountOpenFor === item.productId ? null : item.productId)}
+                      >
+                        <Tag className="w-3.5 h-3.5" />
+                      </Button>
+
+                      {/* Delete */}
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10 shrink-0" onClick={() => removeItem(item.productId)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
-                  )
-                })}
+
+                    {/* Serialized Cylinder Selection Row (Optional until barcode scanners installed) */}
+                    {item.product.isCylinderTracked && (
+                      <div className="px-2.5 py-1.5 bg-muted/40 border-t flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Flame className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className="font-semibold text-muted-foreground shrink-0">Cylinder (opt):</span>
+                          {item.cylinderSerial ? (
+                            <span className="font-mono font-bold text-foreground bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 px-1.5 py-0.5 rounded truncate">
+                              {item.cylinderSerial}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground italic">None (Unassigned)</span>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-[11px] px-2 py-0 border-muted-foreground/30 hover:bg-muted shrink-0"
+                          onClick={() => openCylinderPickerForItem(item)}
+                        >
+                          {item.cylinderSerial ? 'Change' : 'Assign'}
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Inline discount input — only shown when toggled */}
+                    {discountOpenFor === item.productId && (
+                      <div className="px-2 pb-2 pt-0 flex items-center gap-2 bg-emerald-50/50 border-t border-emerald-100">
+                        <Tag className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span className="text-xs text-emerald-700 font-medium">Disc KES</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={item.unitPrice * item.quantity}
+                          placeholder="0"
+                          value={item.discount || ''}
+                          onChange={(e) => updateItemDiscount(item.productId, Number(e.target.value))}
+                          className="h-7 text-sm w-28 border-emerald-300 focus-visible:ring-emerald-400"
+                          autoFocus
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          → {formatCurrency(item.unitPrice * item.quantity - item.discount)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
 
               <div className="flex-shrink-0 space-y-3">
@@ -591,6 +576,92 @@ const NewSale = () => {
         />
       )}
 
+      {/* Cylinder Selection Modal */}
+      <Dialog open={!!cylinderPickerItem} onOpenChange={(o) => !o && setCylinderPickerItem(null)}>
+        <DialogContent className="sm:max-w-md bg-card text-card-foreground">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Flame className="w-5 h-5 text-amber-600 dark:text-emerald-400" />
+              Assign Cylinder (Optional): {cylinderPickerItem?.product?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              If scanning a barcode or serial number, select the matching unit below. Otherwise, you can skip this step and complete the sale normally.
+            </p>
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search serial number..."
+                value={cylinderSearch}
+                onChange={(e) => setCylinderSearch(e.target.value)}
+                className="pl-9 h-10 text-sm"
+              />
+            </div>
+            <div className="max-h-60 overflow-y-auto space-y-2 border rounded-md p-2">
+              {loadingCylinders ? (
+                <p className="text-sm text-center py-6 text-muted-foreground">Loading available cylinders...</p>
+              ) : availableCylinders.length === 0 ? (
+                <div className="text-center py-6 space-y-2">
+                  <p className="text-sm text-muted-foreground">No serialized units registered for this branch.</p>
+                  <p className="text-xs text-muted-foreground/75">You can still sell this item normally without a serial number.</p>
+                </div>
+              ) : (
+                availableCylinders
+                  .filter((c: any) =>
+                    !cylinderSearch.trim() ||
+                    c.serialNumber?.toLowerCase().includes(cylinderSearch.toLowerCase())
+                  )
+                  .map((cyl: any) => {
+                    const isSelected = cylinderPickerItem?.cylinderId === cyl.id
+                    return (
+                      <div
+                        key={cyl.id}
+                        className={`flex items-center justify-between p-2.5 rounded-md border cursor-pointer transition-colors ${
+                          isSelected ? 'border-primary bg-primary/10' : 'hover:bg-muted/40'
+                        }`}
+                        onClick={() => {
+                          updateItemCylinder(cylinderPickerItem.productId, cyl.id, cyl.serialNumber)
+                          toast.success(`Assigned cylinder: ${cyl.serialNumber}`)
+                          setCylinderPickerItem(null)
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Flame className="w-4 h-4 text-amber-500" />
+                          <div>
+                            <p className="text-sm font-bold font-mono">{cyl.serialNumber}</p>
+                            <p className="text-[11px] text-muted-foreground">Condition: {cyl.condition || 'GOOD'}</p>
+                          </div>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-primary" />}
+                      </div>
+                    )
+                  })
+              )}
+            </div>
+            <div className="flex justify-between items-center gap-2 pt-2">
+              {cylinderPickerItem?.cylinderId ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    updateItemCylinder(cylinderPickerItem.productId, undefined, undefined)
+                    setCylinderPickerItem(null)
+                    toast.info('Cylinder assignment removed')
+                  }}
+                >
+                  Clear Assignment
+                </Button>
+              ) : <div />}
+              <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setCylinderPickerItem(null)}>
+                  Skip / Sell Without Serial
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Discount Manager Override Modal */}
       <Dialog open={overrideModalOpen} onOpenChange={setOverrideModalOpen}>
