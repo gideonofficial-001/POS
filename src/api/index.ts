@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { useAuthStore } from '@/store'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://pos-backend-9vfd.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || 'https://pos-backend-dffl.onrender.com/api'
 
 const api = axios.create({
   baseURL: API_URL,

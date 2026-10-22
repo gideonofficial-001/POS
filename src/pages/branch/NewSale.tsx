@@ -11,21 +11,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
-import {
-  ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Tag,
-  Bookmark, RotateCcw, ShieldAlert, KeyRound, Check
-} from 'lucide-react'
-import { PaymentSplitModal, PaymentEntry } from './PaymentSplitModal'
-import { ThermalReceiptModal } from './ThermalReceiptModal'
+import { ShoppingCart, Minus, Plus, Trash2, Search, Package, Flame, Smartphone, Tag } from 'lucide-react'
+import { PaymentSplitModal } from './PaymentSplitModal'
 
 const VARIANT_SEPARATOR = '~~'
+
+interface PaymentEntry {
+  method: 'MPESA' | 'CASH'
+  amount: number
+  mpesaRef?: string
+}
 
 const NewSale = () => {
   const { user } = useAuthStore()
   const {
-    items, addItem, removeItem, updateQuantity, updateItemDiscount, updateItemCylinder, clearCart,
+    items, addItem, removeItem, updateQuantity, updateItemDiscount, clearCart,
     getSubtotal, getTotalDiscount, getTotal,
-    parkedCarts, parkCurrentCart, recallCart, removeParkedCart,
   } = useCartStore()
 
   const queryClient = useQueryClient()
@@ -37,23 +38,10 @@ const NewSale = () => {
   // Tracks which cart item has its discount input open
   const [discountOpenFor, setDiscountOpenFor] = useState<string | null>(null)
 
-  // Cylinder Selection State
-  const [cylinderPickerItem, setCylinderPickerItem] = useState<any | null>(null)
-  const [availableCylinders, setAvailableCylinders] = useState<any[]>([])
-  const [loadingCylinders, setLoadingCylinders] = useState(false)
-  const [cylinderSearch, setCylinderSearch] = useState('')
-
-  // Discount Override Modal State
-  const [overrideModalOpen, setOverrideModalOpen] = useState(false)
-  const [managerOverrideCode, setManagerOverrideCode] = useState('')
-  const [discountReason, setDiscountReason] = useState('')
-
   const [lpgModalOpen, setLpgModalOpen] = useState(false)
   const [selectedInvItem, setSelectedInvItem] = useState<any>(null)
   const [splitModalOpen, setSplitModalOpen] = useState(false)
-  const [parkedModalOpen, setParkedModalOpen] = useState(false)
   const [pendingSaleData, setPendingSaleData] = useState<any>(null)
-  const [completedReceipt, setCompletedReceipt] = useState<any>(null)
   const [invoiceReceipt, setInvoiceReceipt] = useState<{
     code: string; name: string; phone: string; total: number; itemsStr: string
   } | null>(null)
@@ -82,61 +70,11 @@ const NewSale = () => {
     },
   })
 
-  const openCylinderPickerForItem = async (item: any) => {
-    setCylinderPickerItem(item)
-    setCylinderSearch('')
-    setLoadingCylinders(true)
-    const [rawProductId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
-    const status = lpgVariant === 'EMPTY_SHELL' ? 'EMPTY' : 'FULL'
-    try {
-      const res = await inventoryApi.getAvailableCylinders(branchId, rawProductId, status)
-      setAvailableCylinders(Array.isArray(res.data) ? res.data : [])
-    } catch {
-      toast.error('Failed to load available cylinders')
-      setAvailableCylinders([])
-    } finally {
-      setLoadingCylinders(false)
-    }
-  }
-
   const createSaleMutation = useMutation({
     mutationFn: (data: any) => salesApi.create(data),
     onSuccess: (response, variables) => {
-      const itemsSnapshot = items.map(item => {
-        const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
-        const label = lpgVariant === 'REFILL' ? ' (Refill)' : lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
-        return {
-          name: `${item.product.name}${label}${item.cylinderSerial ? ` [${item.cylinderSerial}]` : ''}`,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          discount: item.discount,
-          total: item.total,
-        }
-      })
-
-      const paymentList = variables.payments && variables.payments.length > 0
-        ? variables.payments
-        : [{ method: variables.type === SaleType.INVOICE ? 'INVOICE' : 'CASH', amount: getTotal() }]
-
-      const customerObj = customers.find((c: any) => c.id === variables.customerId)
-
-      // Set thermal receipt data for immediate receipt display & printing
-      setCompletedReceipt({
-        saleCode: response.data.saleCode,
-        date: new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        branchName: response.data?.branch?.name || user?.branchId || 'Branch',
-        cashierName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Cashier',
-        customerName: customerObj?.name || variables.customerName || undefined,
-        customerPhone: customerObj?.phone || undefined,
-        saleType: variables.type,
-        items: itemsSnapshot,
-        subtotal: getSubtotal(),
-        totalDiscount: getTotalDiscount(),
-        total: getTotal(),
-        payments: paymentList,
-      })
-
       if (variables.type === SaleType.INVOICE) {
+        const customer = customers.find((c: any) => c.id === variables.customerId)
         const itemsListStr = items.map(item => {
           const [, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
           const label = lpgVariant === 'REFILL' ? ' (Refill)' : lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
@@ -144,15 +82,17 @@ const NewSale = () => {
         }).join('\n- ')
         setInvoiceReceipt({
           code: response.data.saleCode,
-          name: customerObj?.name || 'Customer',
-          phone: customerObj?.phone || '',
+          name: customer?.name || 'Customer',
+          phone: customer?.phone || '',
           total: getTotal(),
           itemsStr: itemsListStr,
         })
       } else {
-        toast.success(`Sale completed! Code: ${response.data.saleCode}`)
+        const parts = [`Sale completed! Code: ${response.data.saleCode}`]
+        if (variables.mpesaRef) parts.push(`M-Pesa: ${variables.mpesaRef}`)
+        if (variables.customerName) parts.push(`Customer: ${variables.customerName}`)
+        toast.success(parts.join(' · '))
       }
-
       clearCart()
       setSearch('')
       setSelectedCustomerId('')
@@ -161,8 +101,6 @@ const NewSale = () => {
       setDiscountOpenFor(null)
       setSplitModalOpen(false)
       setPendingSaleData(null)
-      setManagerOverrideCode('')
-      setDiscountReason('')
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
@@ -202,9 +140,6 @@ const NewSale = () => {
     type: saleType,
     customerId: requiresCustomer ? selectedCustomerId : undefined,
     customerName: !requiresCustomer && customerName.trim() ? customerName.trim() : undefined,
-    idempotencyKey: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `sale_${Date.now()}_${Math.random()}`,
-    discountReason: discountReason.trim() || undefined,
-    managerOverrideCode: managerOverrideCode.trim() || undefined,
     items: items.map(item => {
       const [productId, lpgVariant] = item.productId.split(VARIANT_SEPARATOR)
       return {
@@ -212,29 +147,13 @@ const NewSale = () => {
         quantity: item.quantity,
         discount: item.discount,
         ...(lpgVariant ? { lpgVariant } : {}),
-        cylinderId: item.cylinderId || undefined,
-        serialNumber: item.cylinderSerial || undefined,
       }
     }),
   })
 
-  const totalDiscount = getTotalDiscount()
-  const subtotal = getSubtotal()
-  const total = getTotal()
-
   const handleCheckout = () => {
     if (items.length === 0) return toast.error('Cart is empty')
     if (requiresCustomer && !selectedCustomerId) return toast.error('Please select a customer for this sale')
-
-    // Tracked cylinder assignment is optional (no scanner required)
-
-    // Verify discount limits for branch manager
-    const requiresOverride = user?.role === 'BRANCH_MANAGER' && (totalDiscount > 500 || totalDiscount > (subtotal * 0.10 + 0.01))
-    if (requiresOverride && !managerOverrideCode.trim()) {
-      setOverrideModalOpen(true)
-      return
-    }
-
     const saleData = buildSaleData()
     if (saleType === SaleType.INVOICE) {
       createSaleMutation.mutate(saleData)
@@ -279,6 +198,10 @@ const NewSale = () => {
     setLpgModalOpen(false)
     setSearch('')
   }
+
+  const totalDiscount = getTotalDiscount()
+  const subtotal = getSubtotal()
+  const total = getTotal()
 
   return (
     <div className="flex flex-col lg:min-h-[calc(100vh-6rem)] bg-background space-y-4 pb-10 lg:pb-0">
@@ -341,11 +264,6 @@ const NewSale = () => {
                         </div>
                         <div>
                           <h4 className="font-semibold text-sm line-clamp-2 leading-snug">{product.name}</h4>
-                          {product.isCylinderTracked && (
-                            <span className="text-[10px] text-muted-foreground font-medium block mt-0.5">
-                              • Serialized (Optional)
-                            </span>
-                          )}
                           <p className="text-lg font-black text-primary mt-1">{formatCurrency(displayPrice)}</p>
                         </div>
                       </CardContent>
@@ -360,42 +278,11 @@ const NewSale = () => {
         {/* ── CART ── */}
         <div className="flex flex-col h-auto lg:h-full">
           <Card className="flex flex-col h-full border-primary/10 shadow-md">
-            <CardHeader className="pb-3 flex-shrink-0 flex flex-row items-center justify-between space-y-0">
+            <CardHeader className="pb-4 flex-shrink-0">
               <CardTitle className="text-lg flex items-center gap-2">
                 <ShoppingCart className="w-5 h-5 text-primary" />
                 Cart ({items.length})
               </CardTitle>
-              <div className="flex items-center gap-1.5">
-                {parkedCarts.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-1 text-xs border-amber-300 dark:border-emerald-500/40 text-amber-800 dark:text-emerald-300 bg-amber-50 dark:bg-emerald-950/30 hover:bg-amber-100 dark:hover:bg-emerald-950/50"
-                    onClick={() => setParkedModalOpen(true)}
-                  >
-                    <Bookmark className="w-3.5 h-3.5 text-amber-600 dark:text-emerald-400" />
-                    Parked ({parkedCarts.length})
-                  </Button>
-                )}
-                {items.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 gap-1 text-xs text-muted-foreground hover:text-foreground"
-                    title="Park this cart to serve another customer"
-                    onClick={() => {
-                      const note = window.prompt('Cart label/note (e.g. customer name or car reg):')
-                      if (note !== null) {
-                        parkCurrentCart(note.trim() || undefined)
-                        toast.success('Cart parked')
-                      }
-                    }}
-                  >
-                    <Bookmark className="w-3.5 h-3.5" />
-                    Park
-                  </Button>
-                )}
-              </div>
             </CardHeader>
 
             <CardContent className="flex-1 flex flex-col min-h-[300px] overflow-hidden space-y-4">
@@ -456,31 +343,6 @@ const NewSale = () => {
                       </Button>
                     </div>
 
-                    {/* Serialized Cylinder Selection Row (Optional until barcode scanners installed) */}
-                    {item.product.isCylinderTracked && (
-                      <div className="px-2.5 py-1.5 bg-muted/40 border-t flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <Flame className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                          <span className="font-semibold text-muted-foreground shrink-0">Cylinder (opt):</span>
-                          {item.cylinderSerial ? (
-                            <span className="font-mono font-bold text-foreground bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 px-1.5 py-0.5 rounded truncate">
-                              {item.cylinderSerial}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground italic">None (Unassigned)</span>
-                          )}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 text-[11px] px-2 py-0 border-muted-foreground/30 hover:bg-muted shrink-0"
-                          onClick={() => openCylinderPickerForItem(item)}
-                        >
-                          {item.cylinderSerial ? 'Change' : 'Assign'}
-                        </Button>
-                      </div>
-                    )}
-
                     {/* Inline discount input — only shown when toggled */}
                     {discountOpenFor === item.productId && (
                       <div className="px-2 pb-2 pt-0 flex items-center gap-2 bg-emerald-50/50 border-t border-emerald-100">
@@ -516,12 +378,12 @@ const NewSale = () => {
 
                 {/* Customer select — invoice & wholesale */}
                 {requiresCustomer && (
-                  <div className="space-y-1.5 p-3 bg-amber-50 dark:bg-emerald-950/20 border border-amber-200 dark:border-emerald-500/40 rounded-lg">
-                    <Label className="text-xs font-bold text-amber-900 dark:text-emerald-300 uppercase tracking-wider">Select Customer (Required)</Label>
+                  <div className="space-y-1.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <Label className="text-xs font-bold text-amber-900 uppercase tracking-wider">Select Customer (Required)</Label>
                     <select
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
-                      className="w-full p-2.5 border border-amber-300 dark:border-emerald-500/40 rounded-md text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500 dark:focus:ring-emerald-500/60 appearance-none"
+                      className="w-full p-2.5 border border-amber-300 rounded-md text-sm bg-card focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none"
                     >
                       <option value="">-- Choose a customer --</option>
                       {customers.map((c: any) => (
@@ -570,160 +432,10 @@ const NewSale = () => {
       {splitModalOpen && pendingSaleData && (
         <PaymentSplitModal
           total={total}
-          pendingSaleData={pendingSaleData}
           onConfirm={handlePaymentConfirm}
           onClose={() => { setSplitModalOpen(false); setPendingSaleData(null) }}
         />
       )}
-
-      {/* Cylinder Selection Modal */}
-      <Dialog open={!!cylinderPickerItem} onOpenChange={(o) => !o && setCylinderPickerItem(null)}>
-        <DialogContent className="sm:max-w-md bg-card text-card-foreground">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Flame className="w-5 h-5 text-amber-600 dark:text-emerald-400" />
-              Assign Cylinder (Optional): {cylinderPickerItem?.product?.name}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <p className="text-xs text-muted-foreground">
-              If scanning a barcode or serial number, select the matching unit below. Otherwise, you can skip this step and complete the sale normally.
-            </p>
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search serial number..."
-                value={cylinderSearch}
-                onChange={(e) => setCylinderSearch(e.target.value)}
-                className="pl-9 h-10 text-sm"
-              />
-            </div>
-            <div className="max-h-60 overflow-y-auto space-y-2 border rounded-md p-2">
-              {loadingCylinders ? (
-                <p className="text-sm text-center py-6 text-muted-foreground">Loading available cylinders...</p>
-              ) : availableCylinders.length === 0 ? (
-                <div className="text-center py-6 space-y-2">
-                  <p className="text-sm text-muted-foreground">No serialized units registered for this branch.</p>
-                  <p className="text-xs text-muted-foreground/75">You can still sell this item normally without a serial number.</p>
-                </div>
-              ) : (
-                availableCylinders
-                  .filter((c: any) =>
-                    !cylinderSearch.trim() ||
-                    c.serialNumber?.toLowerCase().includes(cylinderSearch.toLowerCase())
-                  )
-                  .map((cyl: any) => {
-                    const isSelected = cylinderPickerItem?.cylinderId === cyl.id
-                    return (
-                      <div
-                        key={cyl.id}
-                        className={`flex items-center justify-between p-2.5 rounded-md border cursor-pointer transition-colors ${
-                          isSelected ? 'border-primary bg-primary/10' : 'hover:bg-muted/40'
-                        }`}
-                        onClick={() => {
-                          updateItemCylinder(cylinderPickerItem.productId, cyl.id, cyl.serialNumber)
-                          toast.success(`Assigned cylinder: ${cyl.serialNumber}`)
-                          setCylinderPickerItem(null)
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Flame className="w-4 h-4 text-amber-500" />
-                          <div>
-                            <p className="text-sm font-bold font-mono">{cyl.serialNumber}</p>
-                            <p className="text-[11px] text-muted-foreground">Condition: {cyl.condition || 'GOOD'}</p>
-                          </div>
-                        </div>
-                        {isSelected && <Check className="w-4 h-4 text-primary" />}
-                      </div>
-                    )
-                  })
-              )}
-            </div>
-            <div className="flex justify-between items-center gap-2 pt-2">
-              {cylinderPickerItem?.cylinderId ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    updateItemCylinder(cylinderPickerItem.productId, undefined, undefined)
-                    setCylinderPickerItem(null)
-                    toast.info('Cylinder assignment removed')
-                  }}
-                >
-                  Clear Assignment
-                </Button>
-              ) : <div />}
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setCylinderPickerItem(null)}>
-                  Skip / Sell Without Serial
-                </Button>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Discount Manager Override Modal */}
-      <Dialog open={overrideModalOpen} onOpenChange={setOverrideModalOpen}>
-        <DialogContent className="sm:max-w-md bg-card text-card-foreground">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600 dark:text-emerald-400">
-              <ShieldAlert className="w-5 h-5" />
-              Manager Authorization Required
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Total discounts of <strong>{formatCurrency(totalDiscount)}</strong> exceed your branch manager limit (Max 10% or KES 500). Enter the administrator override code and reason to proceed.
-            </p>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold">Manager Override Code *</Label>
-              <div className="relative">
-                <KeyRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="password"
-                  placeholder="Enter override code"
-                  value={managerOverrideCode}
-                  onChange={(e) => setManagerOverrideCode(e.target.value)}
-                  className="pl-9 h-10"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold">Discount Reason (Optional)</Label>
-              <Input
-                placeholder="e.g. Loyalty customer, promotional offer..."
-                value={discountReason}
-                onChange={(e) => setDiscountReason(e.target.value)}
-                className="h-10"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setOverrideModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  if (!managerOverrideCode.trim()) {
-                    toast.error('Please enter the manager override code')
-                    return
-                  }
-                  setOverrideModalOpen(false)
-                  const saleData = buildSaleData()
-                  if (saleType === SaleType.INVOICE) {
-                    createSaleMutation.mutate(saleData)
-                  } else {
-                    setPendingSaleData(saleData)
-                    setSplitModalOpen(true)
-                  }
-                }}
-              >
-                Authorize & Checkout
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* LPG selection modal */}
       <Dialog open={lpgModalOpen} onOpenChange={setLpgModalOpen}>
@@ -734,8 +446,8 @@ const NewSale = () => {
               <Flame className="w-5 h-5 mr-3 text-blue-500" />
               <div className="flex-1"><div className="flex justify-between w-full"><p className="font-bold">Gas Refill Only</p><span className="text-xs font-medium text-blue-600">{selectedInvItem?.fullCylinders} left</span></div><p className="text-xs text-muted-foreground">Customer returns empty shell</p></div>
             </Button>
-            <Button variant="outline" className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400 dark:hover:border-emerald-400/60'}`} onClick={() => handleLpgSelect('EMPTY_SHELL')} disabled={selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null}>
-              <Package className="w-5 h-5 mr-3 text-amber-600 dark:text-emerald-400" />
+            <Button variant="outline" className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : 'hover:border-amber-400'}`} onClick={() => handleLpgSelect('EMPTY_SHELL')} disabled={selectedInvItem?.emptyCylinders <= 0 || selectedInvItem?.product?.emptyPrice == null}>
+              <Package className="w-5 h-5 mr-3 text-amber-600" />
               <div className="flex-1"><div className="flex justify-between w-full"><p className="font-bold">Empty Cylinder</p><span className="text-xs font-medium text-amber-600">{Math.max(0, selectedInvItem?.emptyCylinders || 0)} left</span></div><p className="text-xs text-muted-foreground">{saleType === SaleType.WHOLESALE ? (selectedInvItem?.product?.wholesaleEmptyPrice ? formatCurrency(selectedInvItem.product.wholesaleEmptyPrice) : 'price not set') : (selectedInvItem?.product?.emptyPrice != null ? formatCurrency(selectedInvItem.product.emptyPrice) : 'price not set')}</p></div>
             </Button>
             <Button className={`h-16 justify-start text-left px-4 ${(selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null) ? 'opacity-50' : ''}`} onClick={() => handleLpgSelect('COMPLETE_SET')} disabled={selectedInvItem?.fullCylinders === 0 || selectedInvItem?.product?.emptyPrice == null}>
@@ -766,76 +478,6 @@ const NewSale = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Parked Carts Modal */}
-      <Dialog open={parkedModalOpen} onOpenChange={setParkedModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Bookmark className="w-5 h-5 text-primary" /> Parked Carts ({parkedCarts.length})
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 py-2 max-h-[60vh] overflow-y-auto">
-            {parkedCarts.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No parked carts.</p>
-            ) : (
-              parkedCarts.map((pc) => {
-                const pcTotal = pc.items.reduce((acc, it) => acc + (it.unitPrice * it.quantity - (it.discount || 0)), 0)
-                return (
-                  <div key={pc.id} className="p-3 border rounded-lg bg-card flex items-center justify-between gap-3 shadow-sm hover:border-primary/40 transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm truncate">{pc.label || pc.note || 'Untitled Cart'}</span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {new Date(pc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {pc.items.length} item{pc.items.length !== 1 ? 's' : ''} • <span className="font-semibold text-primary">{formatCurrency(pcTotal)}</span>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <Button
-                        size="sm"
-                        variant="default"
-                        className="h-8 gap-1 text-xs"
-                        onClick={() => {
-                          if (items.length > 0 && !window.confirm('Restoring this parked cart will replace your current active cart items. Continue?')) {
-                            return
-                          }
-                          recallCart(pc.id)
-                          setParkedModalOpen(false)
-                          toast.success('Parked cart restored')
-                        }}
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" /> Recall
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
-                        onClick={() => {
-                          removeParkedCart(pc.id)
-                          toast.info('Parked cart discarded')
-                        }}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Thermal Receipt Modal */}
-      {completedReceipt && (
-        <ThermalReceiptModal
-          receipt={completedReceipt}
-          onClose={() => setCompletedReceipt(null)}
-        />
-      )}
 
     </div>
   )

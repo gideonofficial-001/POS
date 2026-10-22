@@ -9,12 +9,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-import { formatCurrency, getNairobiDateString } from '@/lib/utils'
+import { formatCurrency } from '@/lib/utils'
 import { Calendar, Search, Printer, Store, FileDown, Phone, User, ChevronRight, Package, X } from 'lucide-react'
 import { toast } from 'sonner'
 
-const getBusinessDate = (dateString?: string | Date) => {
-  return getNairobiDateString(dateString)
+const getBusinessDate = (dateString: string) => {
+  const date = new Date(dateString)
+  return date.toISOString().split('T')[0]
 }
 
 const SalesHistory = () => {
@@ -32,21 +33,6 @@ const SalesHistory = () => {
   // ── Product filter state ─────────────────────────────────────────────────
   const [selectedProductId, setSelectedProductId] = useState<string>('')
   const [selectedProductName, setSelectedProductName] = useState<string>('')
-  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('all')
-
-  const getPaymentMethodDisplay = (sale: any) => {
-    if (sale.payments && sale.payments.length > 0) {
-      const methods = Array.from(new Set(sale.payments.map((p: any) => p.method)))
-      if (methods.length === 1) {
-        return methods[0] === 'PAYBILL' ? 'PayBill' : methods[0] === 'CASH' ? 'Cash' : methods[0]
-      }
-      return 'Split (' + methods.map((m: any) => m === 'PAYBILL' ? 'PayBill' : m === 'CASH' ? 'Cash' : m).join(' + ') + ')'
-    }
-    if (sale.paymentMethod === 'CASH') return 'Cash'
-    if (sale.paymentMethod === 'PAYBILL') return 'PayBill'
-    if (sale.paymentMethod === 'MPESA') return 'PayBill'
-    return sale.paymentMethod || 'Cash'
-  }
 
   const { data: branches } = useQuery({
     queryKey: ['branches'],
@@ -81,9 +67,8 @@ const SalesHistory = () => {
     const productMap = new Map<string, string>()
     sales.forEach((sale: any) => {
       sale.saleItems?.forEach((item: any) => {
-        const pName = item.productNameSnapshot || item.product?.name
-        if (pName && !productMap.has(item.productId)) {
-          productMap.set(item.productId, pName)
+        if (item.product && !productMap.has(item.productId)) {
+          productMap.set(item.productId, item.product.name)
         }
       })
     })
@@ -112,15 +97,7 @@ const SalesHistory = () => {
       if (sale.type === 'INVOICE') return
       if (view === 'retail' && sale.type !== 'CASH') return
 
-      if (paymentMethodFilter !== 'all') {
-        const hasMethod = sale.payments?.some((p: any) => p.method === paymentMethodFilter) ||
-          sale.paymentMethod === paymentMethodFilter ||
-          (paymentMethodFilter === 'PAYBILL' && sale.paymentMethod === 'MPESA')
-        if (!hasMethod) return
-      }
-
       const businessDate = getBusinessDate(sale.createdAt)
-      const paymentDisplay = getPaymentMethodDisplay(sale)
 
       if (selectedProductId) {
         // ── Product filter mode: ignore date, only show matching product ──
@@ -128,10 +105,8 @@ const SalesHistory = () => {
         if (!matchingItems?.length) return
 
         matchingItems.forEach((item: any) => {
-          const pName = item.productNameSnapshot || item.product?.name || 'Unknown Item'
-          const variant = item.variantSnapshot || item.lpgVariant
-          const lpgLabel = variant === 'REFILL' ? ' (Refill)' : variant === 'EMPTY_SHELL' ? ' (Empty Shell)' : variant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
-          const description = `${pName}${lpgLabel} x${item.quantity}pcs`
+          const lpgLabel = item.lpgVariant === 'REFILL' ? ' (Refill)' : item.lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : item.lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
+          const description = `${item.product?.name || 'Unknown Item'}${lpgLabel} x${item.quantity}pcs`
           if (search) {
             const term = search.toLowerCase()
             if (!sale.saleCode.toLowerCase().includes(term) && !description.toLowerCase().includes(term) && !sale.customer?.name?.toLowerCase().includes(term)) return
@@ -143,7 +118,6 @@ const SalesHistory = () => {
             description,
             type: sale.type === 'CASH' ? 'RETAIL' : sale.type,
             reference: sale.saleCode,
-            paymentMethod: paymentDisplay,
             amount: item.total,
             discount: Number(item.discount || 0),
             customer: sale.customer?.name,
@@ -155,10 +129,8 @@ const SalesHistory = () => {
         if (dateFilter && businessDate !== dateFilter) return
 
         sale.saleItems?.forEach((item: any, index: number) => {
-          const pName = item.productNameSnapshot || item.product?.name || 'Unknown Item'
-          const variant = item.variantSnapshot || item.lpgVariant
-          const lpgLabel = variant === 'REFILL' ? ' (Refill)' : variant === 'EMPTY_SHELL' ? ' (Empty Shell)' : variant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
-          const description = `${pName}${lpgLabel} x${item.quantity}pcs`
+          const lpgLabel = item.lpgVariant === 'REFILL' ? ' (Refill)' : item.lpgVariant === 'EMPTY_SHELL' ? ' (Empty Shell)' : item.lpgVariant === 'COMPLETE_SET' ? ' (Complete Set)' : ''
+          const description = `${item.product?.name || 'Unknown Item'}${lpgLabel} x${item.quantity}pcs`
           const reference = sale.saleItems.length > 1 ? `${sale.saleCode}-${index + 1}` : sale.saleCode
           if (search) {
             const term = search.toLowerCase()
@@ -171,7 +143,6 @@ const SalesHistory = () => {
             description,
             type: sale.type === 'CASH' ? 'RETAIL' : sale.type,
             reference,
-            paymentMethod: paymentDisplay,
             amount: item.total,
             discount: Number(item.discount || 0),
             customer: sale.customer?.name,
@@ -181,7 +152,7 @@ const SalesHistory = () => {
       }
     })
     return rows
-  }, [sales, search, view, dateFilter, selectedProductId, paymentMethodFilter])
+  }, [sales, search, view, dateFilter, selectedProductId])
 
   // ── WHOLESALE: grouped by client ─────────────────────────────────────────
   const wholesaleClients = useMemo(() => {
@@ -351,18 +322,6 @@ const SalesHistory = () => {
               />
             </div>
 
-            {/* Payment Method filter */}
-            <Select value={paymentMethodFilter} onValueChange={setPaymentMethodFilter}>
-              <SelectTrigger className="w-full lg:w-36 border">
-                <SelectValue placeholder="Payment" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Payments</SelectItem>
-                <SelectItem value="CASH">Cash</SelectItem>
-                <SelectItem value="PAYBILL">PayBill</SelectItem>
-              </SelectContent>
-            </Select>
-
             {/* Date — disabled when product filter is active */}
             <div className={`flex items-center gap-2 transition-opacity ${productFilterActive ? 'opacity-30 pointer-events-none' : ''}`}>
               <Calendar className="w-4 h-4 text-muted-foreground hidden sm:block shrink-0" />
@@ -531,7 +490,6 @@ const SalesHistory = () => {
                     <TableHead className="font-bold whitespace-nowrap">TIME</TableHead>
                     <TableHead className="font-bold min-w-[220px]">DESCRIPTION</TableHead>
                     <TableHead className="font-bold">TYPE</TableHead>
-                    <TableHead className="font-bold">PAYMENT</TableHead>
                     <TableHead className="font-bold">REFERENCE</TableHead>
                     {isAdmin && selectedBranchId === 'all' && <TableHead className="font-bold print:hidden">BRANCH</TableHead>}
                     <TableHead className="font-bold text-right">AMOUNT (KES)</TableHead>
@@ -539,10 +497,10 @@ const SalesHistory = () => {
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    <TableRow><TableCell colSpan={isAdmin && selectedBranchId === 'all' ? 8 : 7} className="text-center py-10 text-muted-foreground">Loading transactions...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Loading transactions...</TableCell></TableRow>
                   ) : transactionRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={isAdmin && selectedBranchId === 'all' ? 8 : 7} className="text-center py-10 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                         {productFilterActive
                           ? `No sales found for "${selectedProductName}".`
                           : 'No transactions found for the selected criteria.'}
@@ -560,11 +518,6 @@ const SalesHistory = () => {
                       <TableCell>
                         <Badge variant="outline" className={`text-[10px] py-0 ${row.type === 'WHOLESALE' ? 'text-purple-700 border-purple-200 bg-purple-50' : 'text-blue-700 border-blue-200 bg-blue-50'}`}>
                           {row.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={`text-[10px] py-0 font-medium ${row.paymentMethod?.includes('PayBill') ? 'text-amber-700 border-amber-300 bg-amber-50' : 'text-emerald-700 border-emerald-300 bg-emerald-50'}`}>
-                          {row.paymentMethod}
                         </Badge>
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{row.reference}</TableCell>
